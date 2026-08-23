@@ -1,6 +1,6 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes app for Android. This repository currently contains the first Alpha.
+ProxyScroll is an offline-first notes app for Android. The current build is 0.2.0-alpha02.
 
 ## Alpha features
 
@@ -9,7 +9,10 @@ ProxyScroll is an offline-first notes app for Android. This repository currently
 - Pin important notes
 - Delete notes
 - Local offline storage
-- Light, dark, and dynamic color themes
+- Smooth in-app theme switching
+- Liquid Glass theme with luminous translucent surfaces
+- Royal Graphite theme with a cold rain-darkened graphite texture
+- Persistent appearance settings
 
 ## Architecture
 
@@ -17,7 +20,7 @@ The UI depends on the NotesRepository domain contract rather than a storage impl
 
 ## Build
 
-GitHub Actions builds the debug APK on every push to main. Open the latest **Build Alpha APK** workflow run, download the ProxyScroll-alpha-debug artifact, unzip it, and install the APK on Android 8.0 or newer.
+GitHub Actions builds the debug APK on every push to main. Open the latest **Build Alpha APK** workflow run, download the ProxyScroll-0.2.0-alpha02-debug artifact, unzip it, and install the APK on Android 8.0 or newer.
 
 For a local build with JDK 17, Android SDK 35, and Gradle 8.9:
 
