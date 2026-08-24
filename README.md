@@ -1,6 +1,6 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes app for Android. The current build is **0.8.0-alpha20**.
+ProxyScroll is an offline-first notes app for Android. The current build is **0.9.0-alpha22**.
 
 ## Alpha features
 
@@ -69,6 +69,11 @@ ProxyScroll is an offline-first notes app for Android. The current build is **0.
 - Sidecar installer for signature-conflicted early Alpha installations, without deleting the existing app
 - Explicit settings z-order that keeps privacy fog below the sheet during live theme changes
 - Stable settings chrome while Shape Studio morphs only the live preview and target controls
+- Material-specific mechanics: elastic Liquid Glass, restrained Graphite, and stiff OldScroll paper
+- Large mirrored optical-grain atlases whose repeat period exceeds an individual card
+- Chromatic micro-lenses with bright faces, tinted shadows, and sparse refractive halos
+- Low-cost optical motion trails that follow the shared material light without blurring text
+- Auto, Full, and Lite material-motion profiles with automatic low-RAM adaptation
 
 ## Storage and compatibility
 
@@ -78,7 +83,7 @@ The UI depends on the domain repository contract rather than its SharedPreferenc
 
 ## Build
 
-GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.8.0-alpha20-update.apk` to update the normal package while keeping local notes. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.8.0-alpha20-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.8.0-alpha20-installers` artifact and support Android 8.0 or newer.
+GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.9.0-alpha22-update.apk` to update the normal package while keeping local notes. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.9.0-alpha22-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.9.0-alpha22-installers` artifact and support Android 8.0 or newer.
 
 Alpha APKs use a repository-local debug-only signing key so later Alpha builds can update in place without erasing local notes. This key must never be used for a production release.
 

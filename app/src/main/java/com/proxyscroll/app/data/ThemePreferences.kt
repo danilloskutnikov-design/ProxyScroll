@@ -5,6 +5,7 @@ import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.InterfaceShape
 import com.proxyscroll.app.domain.MaterialDepth
+import com.proxyscroll.app.domain.MaterialMotionQuality
 import com.proxyscroll.app.domain.StainMotion
 import com.proxyscroll.app.domain.StainPalette
 import com.proxyscroll.app.domain.StainSettings
@@ -62,6 +63,9 @@ class ThemePreferences(
             intensity = preferences.getFloat(KEY_STAIN_INTENSITY, defaults.intensity),
             depth = MaterialDepth.fromStorage(preferences.getString(KEY_MATERIAL_DEPTH, null)),
             motion = StainMotion.fromStorage(preferences.getString(KEY_STAIN_MOTION, null)),
+            motionQuality = MaterialMotionQuality.fromStorage(
+                preferences.getString(KEY_MATERIAL_MOTION_QUALITY, null),
+            ),
         ).normalized()
     }
 
@@ -72,6 +76,7 @@ class ThemePreferences(
             .putFloat(KEY_STAIN_INTENSITY, normalized.intensity)
             .putString(KEY_MATERIAL_DEPTH, normalized.depth.storageKey)
             .putString(KEY_STAIN_MOTION, normalized.motion.storageKey)
+            .putString(KEY_MATERIAL_MOTION_QUALITY, normalized.motionQuality.storageKey)
             .apply()
     }
 
@@ -88,5 +93,6 @@ class ThemePreferences(
         const val KEY_STAIN_INTENSITY = "stain_intensity"
         const val KEY_MATERIAL_DEPTH = "material_depth"
         const val KEY_STAIN_MOTION = "stain_motion"
+        const val KEY_MATERIAL_MOTION_QUALITY = "material_motion_quality"
     }
 }
