@@ -12,8 +12,8 @@ android {
         applicationId = "com.proxyscroll.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.5.4-alpha10"
+        versionCode = 11
+        versionName = "0.5.5-alpha11"
     }
 
     val alphaKeystore = file("proxyscroll-alpha.keystore")
