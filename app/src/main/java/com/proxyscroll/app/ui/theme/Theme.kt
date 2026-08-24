@@ -1121,18 +1121,18 @@ fun ProxySettingsFog(
             drawRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFFF8FAFF).copy(alpha = 0.10f * amount),
-                        palette.neutral.copy(alpha = 0.30f * amount),
-                        Color.White.copy(alpha = 0.22f * amount),
+                        Color(0xFFF8FAFF).copy(alpha = 0.24f * amount),
+                        palette.neutral.copy(alpha = 0.46f * amount),
+                        Color.White.copy(alpha = 0.36f * amount),
                     ),
                 ),
             )
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.24f * amount),
-                        palette.primary.copy(alpha = 0.07f * stain * amount),
-                        palette.secondary.copy(alpha = 0.045f * stain * amount),
+                        Color.White.copy(alpha = 0.34f * amount),
+                        palette.primary.copy(alpha = 0.11f * stain * amount),
+                        palette.secondary.copy(alpha = 0.075f * stain * amount),
                         Color.Transparent,
                     ),
                     center = Offset(size.width * 0.50f, size.height * 0.74f),
@@ -1145,17 +1145,17 @@ fun ProxySettingsFog(
             drawRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF172126).copy(alpha = 0.24f * amount),
-                        Color(0xFF080C0E).copy(alpha = 0.48f * amount),
-                        Color.Black.copy(alpha = 0.54f * amount),
+                        Color(0xFF172126).copy(alpha = 0.38f * amount),
+                        Color(0xFF080C0E).copy(alpha = 0.62f * amount),
+                        Color.Black.copy(alpha = 0.68f * amount),
                     ),
                 ),
             )
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        palette.secondary.copy(alpha = 0.09f * stain * amount),
-                        palette.tertiary.copy(alpha = 0.045f * stain * amount),
+                        palette.secondary.copy(alpha = 0.13f * stain * amount),
+                        palette.tertiary.copy(alpha = 0.07f * stain * amount),
                         Color.Transparent,
                     ),
                     center = Offset(size.width * 0.24f, size.height * 0.62f),
