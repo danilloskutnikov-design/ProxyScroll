@@ -1,6 +1,7 @@
 package com.proxyscroll.app.ui.theme
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.graphics.Bitmap
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
@@ -59,6 +60,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InterfaceShape
+import com.proxyscroll.app.domain.MaterialMotionQuality
 import com.proxyscroll.app.domain.resolveFor
 import com.proxyscroll.app.domain.StainPalette
 import com.proxyscroll.app.domain.StainSettings
@@ -239,13 +242,13 @@ private val OldScrollMaterialColors = StainPaletteColors(
 
 val LocalStainPaletteColors = staticCompositionLocalOf { AuroraOpalColors }
 
-private class RepeatingGrainBrush(
+private class OpticalAtlasBrush(
     private val image: ImageBitmap,
 ) : ShaderBrush() {
     override fun createShader(size: Size): Shader = ImageShader(
         image = image,
-        tileModeX = TileMode.Repeated,
-        tileModeY = TileMode.Repeated,
+        tileModeX = TileMode.Mirror,
+        tileModeY = TileMode.Mirror,
     )
 }
 
@@ -266,10 +269,11 @@ private fun createMaterialGrainBrush(
     height: Int,
     layer: MicrostructureLayer,
 ): Brush {
-    // Two prime-ish, differently sized fields are composited in the material.
-    // Their repeat periods do not line up on a phone screen, while the slow
-    // envelope makes particles behave like illuminated inclusions instead of
-    // uniform digital noise.
+    // Two large, differently sized mirrored atlases are composited in the material.
+    // Each atlas is wider than a card and their combined repeat period is much
+    // larger than a phone screen. Sparse particles carry a bright face and a
+    // chromatic shadow, so they behave like inclusions that refract light instead
+    // of a monochrome noise overlay.
     val pixels = IntArray(width * height)
     val oldScroll = theme == AppTheme.OLD_SCROLL
     val spectrum = if (layer == MicrostructureLayer.FINE) {
@@ -297,6 +301,24 @@ private fun createMaterialGrainBrush(
     fun nextNoise(): Int {
         seed = seed * 1_664_525 + 1_013_904_223
         return seed ushr 1
+    }
+
+    fun writeOpticalNeighbour(
+        px: Int,
+        py: Int,
+        tint: Color,
+        neighbourAlpha: Int,
+    ) {
+        if (px !in 0 until width || py !in 0 until height) return
+        val target = py * width + px
+        val existing = pixels[target]
+        if (android.graphics.Color.alpha(existing) >= neighbourAlpha) return
+        pixels[target] = android.graphics.Color.argb(
+            neighbourAlpha.coerceIn(0, 255),
+            (tint.red * 255f).roundToInt().coerceIn(0, 255),
+            (tint.green * 255f).roundToInt().coerceIn(0, 255),
+            (tint.blue * 255f).roundToInt().coerceIn(0, 255),
+        )
     }
 
     pixels.indices.forEach { index ->
@@ -335,10 +357,12 @@ private fun createMaterialGrainBrush(
             pixels[index] = android.graphics.Color.argb(alpha, red, green, blue)
             return@forEach
         }
+        val warpedX = x + sin(y * 0.0087) * 31.0 + cos((x + y) * 0.0039) * 19.0
+        val warpedY = y + cos(x * 0.0073) * 27.0 + sin((x - y) * 0.0047) * 17.0
         val opticalEnvelope = (
-            sin(x * 0.071) +
-                cos(y * 0.053) +
-                sin((x + y) * 0.029) +
+            sin(warpedX * 0.0107) +
+                cos(warpedY * 0.0089) +
+                sin((warpedX + warpedY) * 0.0049) +
                 3.0
             ) / 6.0
         val visibleThreshold = when (layer) {
@@ -369,10 +393,24 @@ private fun createMaterialGrainBrush(
         val blue = ((source.blue + (1f - source.blue) * lift) * 255f)
             .roundToInt().coerceIn(0, 255)
         pixels[index] = android.graphics.Color.argb(alpha.coerceAtMost(255), red, green, blue)
+
+        val refractionTint = spectrum[((noise ushr 13) + 1) % spectrum.size]
+        if (layer == MicrostructureLayer.FINE) {
+            if (occupancy < 15) {
+                writeOpticalNeighbour(x - 1, y - 1, palette.caustic, (alpha * 0.48f).roundToInt())
+                writeOpticalNeighbour(x + 1, y + 1, refractionTint, (alpha * 0.36f).roundToInt())
+            }
+        } else {
+            val haloAlpha = (alpha * 0.28f).roundToInt()
+            writeOpticalNeighbour(x - 1, y, palette.caustic, haloAlpha)
+            writeOpticalNeighbour(x, y - 1, palette.caustic, haloAlpha)
+            writeOpticalNeighbour(x + 1, y, refractionTint, (haloAlpha * 0.86f).roundToInt())
+            writeOpticalNeighbour(x, y + 1, refractionTint, (haloAlpha * 0.72f).roundToInt())
+        }
     }
 
     val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
-    return RepeatingGrainBrush(bitmap.asImageBitmap())
+    return OpticalAtlasBrush(bitmap.asImageBitmap())
 }
 
 val LocalMaterialMicrostructure = staticCompositionLocalOf {
@@ -387,6 +425,22 @@ val LocalMaterialMicrostructure = staticCompositionLocalOf {
  * block invalidates only drawing, rather than recomposing the complete screen.
  */
 val LocalMaterialBreath = staticCompositionLocalOf<() -> Float> { { 0f } }
+
+data class MaterialMotionProfile(
+    val deformation: Float,
+    val opticalDrift: Float,
+    val trail: Float,
+    val textureAlpha: Float,
+)
+
+val LocalMaterialMotionProfile = staticCompositionLocalOf {
+    MaterialMotionProfile(
+        deformation = 0.82f,
+        opticalDrift = 0.78f,
+        trail = 0.62f,
+        textureAlpha = 0.92f,
+    )
+}
 
 enum class ProxySurfaceRole {
     CARD,
@@ -409,6 +463,41 @@ fun ProxyScrollTheme(
         AppTheme.OLD_SCROLL -> OldScrollColors
     }
     val normalizedStainSettings = stainSettings.normalized()
+    val context = LocalContext.current
+    val lowRamDevice = remember(context) {
+        context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true
+    }
+    val motionProfile = remember(normalizedStainSettings.motionQuality, lowRamDevice) {
+        when (normalizedStainSettings.motionQuality) {
+            MaterialMotionQuality.FULL -> MaterialMotionProfile(
+                deformation = 1f,
+                opticalDrift = 1f,
+                trail = 1f,
+                textureAlpha = 1f,
+            )
+            MaterialMotionQuality.LITE -> MaterialMotionProfile(
+                deformation = 0.42f,
+                opticalDrift = 0.28f,
+                trail = 0f,
+                textureAlpha = 0.72f,
+            )
+            MaterialMotionQuality.AUTO -> if (lowRamDevice) {
+                MaterialMotionProfile(
+                    deformation = 0.48f,
+                    opticalDrift = 0.34f,
+                    trail = 0f,
+                    textureAlpha = 0.76f,
+                )
+            } else {
+                MaterialMotionProfile(
+                    deformation = 0.86f,
+                    opticalDrift = 0.82f,
+                    trail = 0.70f,
+                    textureAlpha = 0.94f,
+                )
+            }
+        }
+    }
     val animatedScheme = animateScheme(targetScheme)
     val visualStyle = animateVisualStyle(selectedTheme)
     val stainPalette = animateStainPalette(
@@ -420,15 +509,15 @@ fun ProxyScrollTheme(
             fine = createMaterialGrainBrush(
                 theme = selectedTheme,
                 palette = palette,
-                width = 197,
-                height = 181,
+                width = 631,
+                height = 887,
                 layer = MicrostructureLayer.FINE,
             ),
             spectral = createMaterialGrainBrush(
                 theme = selectedTheme,
                 palette = palette,
-                width = 263,
-                height = 239,
+                width = 827,
+                height = 1091,
                 layer = MicrostructureLayer.SPECTRAL,
             ),
         )
@@ -454,7 +543,11 @@ fun ProxyScrollTheme(
         label = "shared-optical-phase",
     )
     val materialMotionScale = animateFloatAsState(
-        targetValue = if (motionQuiet) 0.06f else normalizedStainSettings.motion.amplitudeFactor,
+        targetValue = if (motionQuiet) {
+            0.04f
+        } else {
+            normalizedStainSettings.motion.amplitudeFactor * motionProfile.opticalDrift
+        },
         animationSpec = tween(if (motionQuiet) 180 else 480, easing = FastOutSlowInEasing),
         label = "shared-material-motion-scale",
     )
@@ -483,6 +576,7 @@ fun ProxyScrollTheme(
         LocalStainPaletteColors provides stainPalette,
         LocalMaterialMicrostructure provides materialMicrostructure,
         LocalMaterialBreath provides materialBreathReader,
+        LocalMaterialMotionProfile provides motionProfile,
     ) {
         MaterialTheme(
             colorScheme = animatedScheme,
@@ -643,6 +737,7 @@ private fun MaterialBackground(
     val palette = LocalStainPaletteColors.current
     val microstructure = LocalMaterialMicrostructure.current
     val materialBreath = LocalMaterialBreath.current
+    val motionProfile = LocalMaterialMotionProfile.current
     val intensity = animateFloatAsState(
         targetValue = settings.intensity,
         animationSpec = tween(420, easing = FastOutSlowInEasing),
@@ -888,16 +983,46 @@ private fun MaterialBackground(
             }
         }
 
+        if (motionProfile.trail > 0.01f && theme != AppTheme.OLD_SCROLL) {
+            val trailColor = when (theme) {
+                AppTheme.LIQUID_GLASS -> palette.caustic
+                AppTheme.ROYAL_GRAPHITE -> palette.secondary
+                AppTheme.OLD_SCROLL -> palette.caustic
+            }
+            repeat(2) { index ->
+                val step = index + 1f
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            trailColor.copy(
+                                alpha = (0.030f / step) * stain * motionProfile.trail,
+                            ),
+                            Color.Transparent,
+                        ),
+                        start = Offset(
+                            size.width * (-0.34f + activeDrift * 0.16f - step * 0.045f),
+                            0f,
+                        ),
+                        end = Offset(
+                            size.width * (0.28f + activeDrift * 0.16f - step * 0.045f),
+                            size.height,
+                        ),
+                    ),
+                )
+            }
+        }
+
         val fineAlpha = when (theme) {
             AppTheme.LIQUID_GLASS -> (0.27f * stain).coerceIn(0.10f, 0.34f)
             AppTheme.ROYAL_GRAPHITE -> (0.23f * stain).coerceIn(0.09f, 0.29f)
             AppTheme.OLD_SCROLL -> (0.46f * stain).coerceIn(0.16f, 0.52f)
-        }
+        } * motionProfile.textureAlpha
         val spectralAlpha = when (theme) {
             AppTheme.LIQUID_GLASS -> (0.18f * stain).coerceIn(0.06f, 0.23f)
             AppTheme.ROYAL_GRAPHITE -> (0.12f * stain).coerceIn(0.04f, 0.16f)
             AppTheme.OLD_SCROLL -> (0.32f * stain).coerceIn(0.10f, 0.38f)
-        }
+        } * motionProfile.textureAlpha
         val overscan = 28f
         withTransform({
             val motion = if (theme == AppTheme.OLD_SCROLL) 2.5f else 11f
@@ -941,6 +1066,7 @@ fun ProxySurface(
     val palette = LocalStainPaletteColors.current
     val microstructure = LocalMaterialMicrostructure.current
     val materialBreath = LocalMaterialBreath.current
+    val motionProfile = LocalMaterialMotionProfile.current
     val cornerDp = when (role) {
         ProxySurfaceRole.CARD -> shapeSettings.resolvedCardCornerDp
         ProxySurfaceRole.INPUT -> shapeSettings.resolvedInputCornerDp
@@ -955,14 +1081,29 @@ fun ProxySurface(
     var materialPressed by remember { mutableStateOf(false) }
     var pressPosition by remember { mutableStateOf(Offset.Zero) }
     var surfaceSize by remember { mutableStateOf(IntSize.Zero) }
+    val pressSpring = when (style.theme) {
+        AppTheme.LIQUID_GLASS -> if (materialPressed) 780f else 360f
+        AppTheme.ROYAL_GRAPHITE -> if (materialPressed) 920f else 560f
+        AppTheme.OLD_SCROLL -> if (materialPressed) 1_160f else 760f
+    }
+    val releaseDamping = when (style.theme) {
+        AppTheme.LIQUID_GLASS -> if (materialPressed) 0.80f else 0.54f
+        AppTheme.ROYAL_GRAPHITE -> if (materialPressed) 0.88f else 0.72f
+        AppTheme.OLD_SCROLL -> 0.92f
+    }
     val compression by animateFloatAsState(
         targetValue = if (materialPressed) 1f else 0f,
         animationSpec = spring(
-            dampingRatio = if (materialPressed) 0.82f else 0.58f,
-            stiffness = if (materialPressed) 820f else 420f,
+            dampingRatio = releaseDamping,
+            stiffness = pressSpring,
         ),
         label = "material-compression-${role.name.lowercase()}",
     )
+    val materialCompression = compression * motionProfile.deformation * when (style.theme) {
+        AppTheme.LIQUID_GLASS -> 1f
+        AppTheme.ROYAL_GRAPHITE -> 0.72f
+        AppTheme.OLD_SCROLL -> 0.34f
+    }
     val clarity by animateFloatAsState(
         targetValue = when {
             materialPressed -> 1f
@@ -976,7 +1117,7 @@ fun ProxySurface(
         label = "material-clarity-${role.name.lowercase()}",
     )
     val depthFactor = stainSettings.depth.opticalFactor
-    val morphCornerDp = animatedCornerDp + compression * when (role) {
+    val morphCornerDp = animatedCornerDp + materialCompression * when (role) {
         ProxySurfaceRole.BUTTON -> 4.8f
         ProxySurfaceRole.INPUT -> 3.6f
         ProxySurfaceRole.CARD -> 3.0f
@@ -1051,12 +1192,13 @@ fun ProxySurface(
     Box(
         modifier = modifier
             .graphicsLayer {
-                scaleX = if (deformContent) 1f + compression * 0.004f else 1f
+                scaleX = if (deformContent) 1f + materialCompression * 0.006f else 1f
                 scaleY = if (deformContent) {
-                    1f - compression * verticalCompression
+                    1f - materialCompression * verticalCompression
                 } else {
                     1f
                 }
+                translationY = if (deformContent) materialCompression * 1.15.dp.toPx() else 0f
             }
             .shadow(
                 elevation = elevation,
@@ -1112,10 +1254,15 @@ fun ProxySurface(
                     } else {
                         0f
                     }
-                    rotationX = -normalizedY * 2.35f * compression * depthFactor
-                    rotationY = normalizedX * 2.35f * compression * depthFactor
-                    scaleX = 1f + 0.012f * compression
-                    scaleY = 1f - 0.010f * compression
+                    rotationX = -normalizedY * 2.65f * materialCompression * depthFactor
+                    rotationY = normalizedX * 2.65f * materialCompression * depthFactor
+                    rotationZ = if (style.theme == AppTheme.LIQUID_GLASS) {
+                        normalizedX * 0.18f * materialCompression
+                    } else {
+                        0f
+                    }
+                    scaleX = 1f + 0.014f * materialCompression
+                    scaleY = 1f - 0.011f * materialCompression
                 }
                 .background(
                     Brush.verticalGradient(
@@ -1180,6 +1327,22 @@ fun ProxySurface(
                     ),
                     center = touchCenter,
                     radius = maxOf(size.width, size.height) * 0.48f,
+                )
+                val touchPressure = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color.Transparent,
+                        0.44f to Color.Transparent,
+                        0.70f to when (style.theme) {
+                            AppTheme.LIQUID_GLASS -> palette.secondary.copy(
+                                alpha = clarity * 0.055f * depthFactor,
+                            )
+                            AppTheme.ROYAL_GRAPHITE -> Color.Black.copy(alpha = clarity * 0.16f)
+                            AppTheme.OLD_SCROLL -> palette.tertiary.copy(alpha = clarity * 0.065f)
+                        },
+                        1.00f to Color.Transparent,
+                    ),
+                    center = touchCenter,
+                    radius = maxOf(size.width, size.height) * 0.42f,
                 )
                 val glowTouchMix = clarity * 0.32f
                 val liveGlowCenter = Offset(
@@ -1256,7 +1419,8 @@ fun ProxySurface(
                         AppTheme.OLD_SCROLL -> 0.38f
                     }) * depthFactor *
                         (0.94f - clarity * 0.30f) *
-                        (0.76f + stainSettings.intensity * 0.22f)
+                        (0.76f + stainSettings.intensity * 0.22f) *
+                        motionProfile.textureAlpha
                 ).coerceIn(0.08f, 0.34f)
                 val spectralGrainOpacity = (
                     (when (style.theme) {
@@ -1265,7 +1429,8 @@ fun ProxySurface(
                         AppTheme.OLD_SCROLL -> 0.22f
                     }) * depthFactor *
                         (0.76f + clarity * 0.24f) *
-                        stainSettings.intensity
+                        stainSettings.intensity *
+                        motionProfile.textureAlpha
                 ).coerceIn(0.035f, 0.21f)
                 val innerRim = Brush.linearGradient(
                     colors = when (style.theme) {
@@ -1296,13 +1461,44 @@ fun ProxySurface(
                 onDrawBehind {
                     val ambientPhase = materialBreath()
                     drawRect(brush = highlight)
+                    if (motionProfile.trail > 0.01f) {
+                        repeat(2) { index ->
+                            val step = index + 1f
+                            withTransform({
+                                translate(
+                                    left = -ambientPhase * 7.5f * step * motionProfile.trail,
+                                    top = ambientPhase * 4.2f * step * motionProfile.trail,
+                                )
+                            }) {
+                                drawRect(
+                                    brush = subglassGlow,
+                                    alpha = (0.16f / step) * motionProfile.trail,
+                                )
+                            }
+                        }
+                    }
                     drawRect(brush = subglassGlow)
                     drawRect(brush = lens)
                     drawRect(brush = lowerRefraction)
-                    drawRect(brush = microstructure.fine, alpha = fineGrainOpacity)
-                    drawRect(brush = microstructure.spectral, alpha = spectralGrainOpacity)
+                    withTransform({
+                        translate(
+                            left = ambientPhase * 0.75f * motionProfile.opticalDrift,
+                            top = -ambientPhase * 0.42f * motionProfile.opticalDrift,
+                        )
+                    }) {
+                        drawRect(brush = microstructure.fine, alpha = fineGrainOpacity)
+                    }
+                    withTransform({
+                        translate(
+                            left = -ambientPhase * 1.18f * motionProfile.opticalDrift,
+                            top = ambientPhase * 0.66f * motionProfile.opticalDrift,
+                        )
+                    }) {
+                        drawRect(brush = microstructure.spectral, alpha = spectralGrainOpacity)
+                    }
                     drawRect(brush = safetyFrost)
                     if (clarity > 0.01f) {
+                        drawRect(brush = touchPressure)
                         drawRect(brush = chromaticTouchBloom)
                         drawRect(brush = touchSpecular)
                     }
