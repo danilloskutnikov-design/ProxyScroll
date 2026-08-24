@@ -38,7 +38,7 @@ class RichTextState(
 
     var value by mutableStateOf(
         TextFieldValue(
-            annotatedString = annotatedText(text, characterStyles),
+            annotatedString = annotatedCharacters(text, characterStyles),
             selection = TextRange(text.length),
         ),
     )
@@ -60,7 +60,7 @@ class RichTextState(
 
         if (oldText == newText) {
             value = TextFieldValue(
-                annotatedString = annotatedText(newText, characterStyles),
+                annotatedString = annotatedCharacters(newText, characterStyles),
                 selection = newValue.selection,
                 composition = newValue.composition,
             )
@@ -81,7 +81,7 @@ class RichTextState(
 
         characterStyles = newStyles
         value = TextFieldValue(
-            annotatedString = annotatedText(newText, newStyles),
+            annotatedString = annotatedCharacters(newText, newStyles),
             selection = newValue.selection,
             composition = newValue.composition,
         )
@@ -144,7 +144,7 @@ class RichTextState(
         characterStyles = characterStyles.mapIndexed { index, style ->
             if (index in range.first until range.second) transform(style, enabled) else style
         }
-        value = value.copy(annotatedString = annotatedText(value.text, characterStyles))
+        value = value.copy(annotatedString = annotatedCharacters(value.text, characterStyles))
         revision++
     }
 
@@ -177,9 +177,9 @@ class RichTextState(
 fun annotatedText(
     text: String,
     spans: List<NoteSpan>,
-): AnnotatedString = annotatedText(text, stylesFromSpans(text, spans))
+): AnnotatedString = annotatedCharacters(text, stylesFromSpans(text, spans))
 
-private fun annotatedText(
+private fun annotatedCharacters(
     text: String,
     styles: List<CharacterStyle>,
 ): AnnotatedString {
