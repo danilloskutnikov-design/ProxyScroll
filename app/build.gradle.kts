@@ -24,7 +24,6 @@ android {
                 storePassword = "android"
                 keyAlias = "proxyscrollalpha"
                 keyPassword = "android"
-                enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = true
                 enableV4Signing = false
