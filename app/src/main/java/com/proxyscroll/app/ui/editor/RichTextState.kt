@@ -133,16 +133,16 @@ class RichTextState(
         transform: (CharacterStyle, Boolean) -> CharacterStyle,
     ) {
         val range = normalizedSelection()
-        if (range.first == range.last) {
+        if (range.first == range.second) {
             val enabled = if (forceEnabled) true else !isActive(typingStyle)
             typingStyle = transform(typingStyle, enabled)
             return
         }
 
-        val selected = characterStyles.subList(range.first, range.last)
+        val selected = characterStyles.subList(range.first, range.second)
         val enabled = if (forceEnabled) true else !selected.all(isActive)
         characterStyles = characterStyles.mapIndexed { index, style ->
-            if (index in range.first until range.last) transform(style, enabled) else style
+            if (index in range.first until range.second) transform(style, enabled) else style
         }
         value = value.copy(annotatedString = annotatedText(value.text, characterStyles))
         revision++
@@ -150,8 +150,8 @@ class RichTextState(
 
     private fun selectedStyles(): List<CharacterStyle> {
         val range = normalizedSelection()
-        return if (range.first == range.last) emptyList() else {
-            characterStyles.subList(range.first, range.last)
+        return if (range.first == range.second) emptyList() else {
+            characterStyles.subList(range.first, range.second)
         }
     }
 
