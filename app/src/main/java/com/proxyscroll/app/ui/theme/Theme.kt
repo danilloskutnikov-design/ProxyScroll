@@ -1225,12 +1225,18 @@ fun ProxySettingsFog(
         if (amount <= 0f) return@Canvas
         val stain = stainSettings.intensity * stainSettings.depth.opticalFactor
         if (selectedTheme == AppTheme.LIQUID_GLASS) {
+            // Privacy frost becomes fully opaque at rest: the scene beneath
+            // contributes only during the opening transition and can never
+            // remain readable through the settings layer.
+            drawRect(
+                color = Color(0xFFF3F6FD).copy(alpha = amount),
+            )
             drawRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFFF8FAFF).copy(alpha = 0.24f * amount),
-                        palette.neutral.copy(alpha = 0.46f * amount),
-                        Color.White.copy(alpha = 0.36f * amount),
+                        Color(0xFFF8FAFF).copy(alpha = 0.42f * amount),
+                        palette.neutral.copy(alpha = 0.58f * amount),
+                        Color.White.copy(alpha = 0.48f * amount),
                     ),
                 ),
             )
@@ -1250,11 +1256,14 @@ fun ProxySettingsFog(
             )
         } else {
             drawRect(
+                color = Color(0xFF080C0F).copy(alpha = amount),
+            )
+            drawRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF172126).copy(alpha = 0.38f * amount),
-                        Color(0xFF080C0E).copy(alpha = 0.62f * amount),
-                        Color.Black.copy(alpha = 0.68f * amount),
+                        Color(0xFF172126).copy(alpha = 0.52f * amount),
+                        Color(0xFF080C0E).copy(alpha = 0.72f * amount),
+                        Color.Black.copy(alpha = 0.78f * amount),
                     ),
                 ),
             )
