@@ -104,7 +104,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -182,7 +181,7 @@ fun ProxyScrollApp(
         label = "settings-fog-progress",
     )
     val settingsFogRadius by animateDpAsState(
-        targetValue = if (showSettings && !editorOpen) 28.dp else 0.dp,
+        targetValue = if (showSettings && !editorOpen) 12.dp else 0.dp,
         animationSpec = tween(520, easing = FastOutSlowInEasing),
         label = "settings-fog-radius",
     )
@@ -201,10 +200,7 @@ fun ProxyScrollApp(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .blur(
-                        radius = settingsFogRadius,
-                        edgeTreatment = BlurredEdgeTreatment.Unbounded,
-                    )
+                    .blur(radius = settingsFogRadius)
                     .graphicsLayer {
                         scaleX = settingsBackgroundScale
                         scaleY = settingsBackgroundScale
@@ -1389,6 +1385,7 @@ private fun SettingsSheet(
             strong = true,
             active = false,
             deformContent = false,
+            interactive = false,
         ) {
             Column(
                 modifier = Modifier
@@ -1717,7 +1714,7 @@ private fun SettingsSheet(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "ProxyScroll · 0.5.6-alpha12",
+                    text = "ProxyScroll · 0.5.7-alpha13",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
