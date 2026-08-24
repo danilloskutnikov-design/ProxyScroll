@@ -28,7 +28,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +38,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatClear
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
@@ -66,6 +67,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -80,15 +83,22 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -102,12 +112,18 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.InterfaceShape
@@ -126,6 +142,7 @@ import com.proxyscroll.app.ui.theme.ProxySurface
 import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import com.proxyscroll.app.ui.theme.ProxyThemeBackground
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.roundToInt
@@ -141,6 +158,8 @@ fun ProxyScrollApp(
     onInterfaceShapeChanged: (InterfaceShape) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val appScope = rememberCoroutineScope()
     var editorOpen by remember { mutableStateOf(false) }
     var editorNote by remember { mutableStateOf<Note?>(null) }
     var showSettings by remember { mutableStateOf(false) }
@@ -172,7 +191,20 @@ fun ProxyScrollApp(
                         note = editorNote,
                         inputMotion = inputMotion,
                         onSave = viewModel::save,
-                        onDelete = viewModel::delete,
+                        onDelete = { deletedNote ->
+                            viewModel.delete(deletedNote)
+                            editorOpen = false
+                            appScope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "Заметка удалена",
+                                    actionLabel = "Отменить",
+                                    duration = SnackbarDuration.Long,
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    viewModel.restore(deletedNote)
+                                }
+                            }
+                        },
                         onClose = { editorOpen = false },
                     )
                 } else {
@@ -204,6 +236,36 @@ fun ProxyScrollApp(
                     onDismiss = { showSettings = false },
                 )
             }
+
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) { snackbarData ->
+                ProxySurface(
+                    modifier = Modifier.fillMaxWidth(),
+                    role = ProxySurfaceRole.OVERLAY,
+                    strong = true,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = snackbarData.visuals.message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        snackbarData.visuals.actionLabel?.let { actionLabel ->
+                            TextButton(onClick = snackbarData::performAction) {
+                                Text(actionLabel)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -212,11 +274,12 @@ fun ProxyScrollApp(
 private fun Modifier.animatedClick(
     onClick: () -> Unit,
     pressedScale: Float = 0.965f,
+    enabled: Boolean = true,
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) pressedScale else 1f,
+        targetValue = if (pressed && enabled) pressedScale else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium,
@@ -231,6 +294,7 @@ private fun Modifier.animatedClick(
         .clickable(
             interactionSource = interactionSource,
             indication = null,
+            enabled = enabled,
             onClick = onClick,
         )
 }
@@ -525,6 +589,7 @@ private fun NoteEditorScreen(
     var showEditorMenu by remember { mutableStateOf(false) }
     val bodyFocusRequester = remember(note?.id) { FocusRequester() }
     val bodyInteractionSource = remember(note?.id) { MutableInteractionSource() }
+    var bodyTextLayout by remember(note?.id) { mutableStateOf<TextLayoutResult?>(null) }
     val bodyFocused by bodyInteractionSource.collectIsFocusedAsState()
     val focusGlow by animateFloatAsState(
         targetValue = if (bodyFocused) 1f else 0f,
@@ -559,6 +624,19 @@ private fun NoteEditorScreen(
     fun finishEditing() {
         saveNow()
         onClose()
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val saveBeforeBackground by rememberUpdatedState(newValue = { saveNow() })
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) saveBeforeBackground()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            saveBeforeBackground()
+        }
     }
 
     BackHandler(onBack = ::finishEditing)
@@ -762,6 +840,7 @@ private fun NoteEditorScreen(
                         .focusRequester(bodyFocusRequester)
                         .padding(horizontal = 20.dp, vertical = 18.dp),
                     interactionSource = bodyInteractionSource,
+                    onTextLayout = { bodyTextLayout = it },
                     visualTransformation = richText.visualTransformation,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = MaterialTheme.colorScheme.onSurface,
@@ -783,6 +862,36 @@ private fun NoteEditorScreen(
                         }
                     },
                 )
+                val layoutResult = bodyTextLayout
+                if (
+                    richText.hasSelection &&
+                    richText.value.text.isNotEmpty() &&
+                    layoutResult != null
+                ) {
+                    val density = LocalDensity.current
+                    val selectionAnchor = minOf(
+                        richText.value.selection.start,
+                        richText.value.selection.end,
+                    ).coerceIn(0, richText.value.text.lastIndex)
+                    val selectionBox = layoutResult.getBoundingBox(selectionAnchor)
+                    val lensY = with(density) {
+                        (selectionBox.top.roundToInt() - 48.dp.roundToPx())
+                            .coerceAtLeast(6.dp.roundToPx())
+                    }
+                    InlineSelectionLens(
+                        richText = richText,
+                        onFormatChanged = {
+                            hasChanges = true
+                            saveState = EditorSaveState.EDITING
+                        },
+                        modifier = Modifier.offset {
+                            IntOffset(
+                                x = with(density) { 10.dp.roundToPx() },
+                                y = lensY,
+                            )
+                        },
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
         }
@@ -792,7 +901,7 @@ private fun NoteEditorScreen(
         AlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
             title = { Text("Удалить заметку?") },
-            text = { Text("Это действие нельзя отменить.") },
+            text = { Text("После удаления заметку можно сразу вернуть.") },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmation = false }) {
                     Text("Отмена")
@@ -810,6 +919,67 @@ private fun NoteEditorScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun InlineSelectionLens(
+    richText: RichTextState,
+    onFormatChanged: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ProxySurface(
+        modifier = modifier,
+        role = ProxySurfaceRole.OVERLAY,
+        strong = true,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = richText.selectionLength.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 7.dp),
+            )
+            FormatButton(
+                selected = richText.boldActive,
+                onClick = {
+                    richText.toggleBold()
+                    onFormatChanged()
+                },
+            ) {
+                Icon(Icons.Default.FormatBold, contentDescription = "Жирный")
+            }
+            FormatButton(
+                selected = richText.underlineActive,
+                onClick = {
+                    richText.toggleUnderline()
+                    onFormatChanged()
+                },
+            ) {
+                Icon(Icons.Default.FormatUnderlined, contentDescription = "Подчёркнутый")
+            }
+            FormatButton(
+                selected = richText.strikethroughActive,
+                onClick = {
+                    richText.toggleStrikethrough()
+                    onFormatChanged()
+                },
+            ) {
+                Icon(Icons.Default.FormatStrikethrough, contentDescription = "Зачёркнутый")
+            }
+            FormatButton(
+                selected = false,
+                onClick = {
+                    richText.clearFormatting()
+                    onFormatChanged()
+                },
+            ) {
+                Icon(Icons.Default.FormatClear, contentDescription = "Очистить формат")
+            }
+        }
     }
 }
 
@@ -870,6 +1040,32 @@ private fun FormattingToolbar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 FormatButton(
+                    selected = false,
+                    enabled = richText.canUndo,
+                    onClick = {
+                        richText.undo()
+                        onFormatChanged()
+                    },
+                ) {
+                    Icon(Icons.Default.Undo, contentDescription = "Отменить")
+                }
+                FormatButton(
+                    selected = false,
+                    enabled = richText.canRedo,
+                    onClick = {
+                        richText.redo()
+                        onFormatChanged()
+                    },
+                ) {
+                    Icon(Icons.Default.Redo, contentDescription = "Повторить")
+                }
+                Box(
+                    modifier = Modifier
+                        .height(28.dp)
+                        .width(1.dp)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                )
+                FormatButton(
                     selected = richText.boldActive,
                     onClick = {
                         richText.toggleBold()
@@ -895,6 +1091,16 @@ private fun FormattingToolbar(
                     },
                 ) {
                     Icon(Icons.Default.FormatStrikethrough, contentDescription = "Зачёркнутый")
+                }
+                FormatButton(
+                    selected = false,
+                    enabled = richText.hasSelection,
+                    onClick = {
+                        richText.clearFormatting()
+                        onFormatChanged()
+                    },
+                ) {
+                    Icon(Icons.Default.FormatClear, contentDescription = "Сбросить форматирование")
                 }
                 Box(
                     modifier = Modifier
@@ -947,12 +1153,14 @@ private fun SelectionLensButton(
 @Composable
 private fun FormatButton(
     selected: Boolean,
+    enabled: Boolean = true,
     onClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .size(44.dp)
+            .graphicsLayer { alpha = if (enabled) 1f else 0.34f }
             .clip(CircleShape)
             .background(
                 if (selected) {
@@ -961,7 +1169,11 @@ private fun FormatButton(
                     Color.Transparent
                 },
             )
-            .animatedClick(onClick = onClick, pressedScale = 0.88f),
+            .animatedClick(
+                onClick = onClick,
+                pressedScale = 0.88f,
+                enabled = enabled,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         content()
@@ -1335,7 +1547,7 @@ private fun SettingsSheet(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "ProxyScroll · 0.5.0-alpha06",
+                    text = "ProxyScroll · 0.5.1-alpha07",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

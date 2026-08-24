@@ -72,6 +72,11 @@ class NotesViewModel(
         refresh()
     }
 
+    fun restore(note: Note) {
+        repository.upsert(note.copy(updatedAt = System.currentTimeMillis()))
+        refresh()
+    }
+
     private fun refresh() {
         setQuery(_uiState.value.query)
     }
