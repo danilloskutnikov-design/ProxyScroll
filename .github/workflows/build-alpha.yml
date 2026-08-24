@@ -43,8 +43,8 @@ jobs:
       - name: Prepare installers
         run: |
           mkdir -p installers
-          cp app/build/outputs/apk/debug/app-debug.apk installers/ProxyScroll-0.8.0-alpha20-update.apk
-          cp app/build/outputs/apk/sidecar/app-sidecar.apk installers/ProxyScroll-0.8.0-alpha20-sidecar.apk
+          cp app/build/outputs/apk/debug/app-debug.apk installers/ProxyScroll-0.9.0-alpha22-update.apk
+          cp app/build/outputs/apk/sidecar/app-sidecar.apk installers/ProxyScroll-0.9.0-alpha22-sidecar.apk
 
       - name: Apply stable Alpha signatures
         run: |
@@ -86,7 +86,7 @@ jobs:
       - name: Upload Alpha installers
         uses: actions/upload-artifact@v4
         with:
-          name: ProxyScroll-0.8.0-alpha20-installers
+          name: ProxyScroll-0.9.0-alpha22-installers
           path: installers
           if-no-files-found: error
           retention-days: 30
