@@ -51,11 +51,28 @@ enum class StainMotion(
     }
 }
 
+enum class MaterialMotionQuality(
+    val storageKey: String,
+    val displayName: String,
+) {
+    AUTO("auto", "Авто"),
+    FULL("full", "Полная"),
+    LITE("lite", "Лёгкая"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): MaterialMotionQuality {
+            return entries.firstOrNull { it.storageKey == value } ?: AUTO
+        }
+    }
+}
+
 data class StainSettings(
     val palette: StainPalette = StainPalette.AURORA_OPAL,
     val intensity: Float = 0.46f,
     val depth: MaterialDepth = MaterialDepth.NATURAL,
     val motion: StainMotion = StainMotion.QUIET,
+    val motionQuality: MaterialMotionQuality = MaterialMotionQuality.AUTO,
 ) {
     fun normalized(): StainSettings = copy(
         intensity = intensity.coerceIn(MIN_STAIN_INTENSITY, MAX_STAIN_INTENSITY),
