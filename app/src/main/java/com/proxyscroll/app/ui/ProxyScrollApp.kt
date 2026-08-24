@@ -82,6 +82,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -91,6 +92,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -212,7 +214,7 @@ fun ProxyScrollApp(
             ) {
                 ProxyThemeBackground(
                     selectedTheme = selectedTheme,
-                    motionQuiet = typingQuiet || (showSettings && !editorOpen),
+                    motionQuiet = typingQuiet,
                     modifier = Modifier.fillMaxSize(),
                 )
                 AnimatedContent(
@@ -1357,9 +1359,14 @@ private fun SettingsSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetCorner = (interfaceShape.globalCornerDp + 8).coerceAtMost(32).dp
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { target -> target != SheetValue.Hidden },
+    )
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = Color.Transparent,
         scrimColor = Color.Transparent,
         dragHandle = null,
@@ -1408,6 +1415,9 @@ private fun SettingsSheet(
                         onClick = { onInterfaceShapeChanged(InterfaceShape()) },
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Сбросить форму")
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Закрыть настройки")
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -1699,7 +1709,7 @@ private fun SettingsSheet(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "ProxyScroll · 0.5.4-alpha10",
+                    text = "ProxyScroll · 0.5.5-alpha11",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
