@@ -1,11 +1,5 @@
 package com.proxyscroll.app.ui.theme
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -16,7 +10,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -57,16 +50,7 @@ private val ProxyBrandMarkPath = Path().apply {
 fun ProxyBrandLockup(
     modifier: Modifier = Modifier,
 ) {
-    val motion = rememberInfiniteTransition(label = "brand-optical-motion")
-    val phase by motion.animateFloat(
-        initialValue = -1f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(8_600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "brand-caustic-phase",
-    )
+    val phase = LocalMaterialBreath.current.invoke()
 
     Row(
         modifier = modifier.semantics { contentDescription = "ProxyScroll" },
@@ -91,20 +75,27 @@ private fun ProxyBrandMark(
     val microstructure = LocalMaterialMicrostructure.current
     val depth = LocalStainSettings.current.depth.opticalFactor
     val liquid = style.theme == AppTheme.LIQUID_GLASS
-    val bodyColors = if (liquid) {
-        listOf(
+    val oldScroll = style.theme == AppTheme.OLD_SCROLL
+    val bodyColors = when (style.theme) {
+        AppTheme.LIQUID_GLASS -> listOf(
             palette.primary,
             palette.secondary,
             palette.caustic,
             palette.tertiary,
             palette.primary,
         )
-    } else {
-        listOf(
+        AppTheme.ROYAL_GRAPHITE -> listOf(
             Color(0xFF10171B),
             palette.primary,
             palette.caustic,
             Color(0xFF080C0F),
+        )
+        AppTheme.OLD_SCROLL -> listOf(
+            Color(0xFF6A4828),
+            palette.secondary,
+            palette.caustic,
+            Color(0xFF8B6236),
+            Color(0xFF4E351F),
         )
     }
 
@@ -120,10 +111,18 @@ private fun ProxyBrandMark(
             )
             val outerRim = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = if (liquid) 0.92f else 0.38f),
+                    Color.White.copy(alpha = when {
+                        liquid -> 0.92f
+                        oldScroll -> 0.60f
+                        else -> 0.38f
+                    }),
                     palette.caustic.copy(alpha = 0.88f * depth),
                     palette.tertiary.copy(alpha = 0.62f * depth),
-                    Color.White.copy(alpha = if (liquid) 0.76f else 0.18f),
+                    Color.White.copy(alpha = when {
+                        liquid -> 0.76f
+                        oldScroll -> 0.42f
+                        else -> 0.18f
+                    }),
                 ),
                 start = Offset(56f + phase * 38f, 0f),
                 end = Offset(436f + phase * 38f, 512f),
@@ -132,8 +131,16 @@ private fun ProxyBrandMark(
                 colorStops = arrayOf(
                     0.00f to Color.Transparent,
                     0.24f to Color.White.copy(alpha = 0.08f),
-                    0.43f to palette.caustic.copy(alpha = if (liquid) 0.92f else 0.46f),
-                    0.56f to Color.White.copy(alpha = if (liquid) 0.72f else 0.22f),
+                    0.43f to palette.caustic.copy(alpha = when {
+                        liquid -> 0.92f
+                        oldScroll -> 0.62f
+                        else -> 0.46f
+                    }),
+                    0.56f to Color.White.copy(alpha = when {
+                        liquid -> 0.72f
+                        oldScroll -> 0.34f
+                        else -> 0.22f
+                    }),
                     0.78f to Color.Transparent,
                 ),
                 start = Offset(-100f + phase * 128f, 0f),
@@ -148,7 +155,11 @@ private fun ProxyBrandMark(
             withTransform({ translate(0f, 10f) }) {
                 drawPath(
                     path = ProxyBrandMarkPath,
-                    color = style.shadow.copy(alpha = if (liquid) 0.22f else 0.72f),
+                    color = style.shadow.copy(alpha = when {
+                        liquid -> 0.22f
+                        oldScroll -> 0.46f
+                        else -> 0.72f
+                    }),
                     style = Stroke(92f, cap = StrokeCap.Round, join = StrokeJoin.Round),
                 )
             }
@@ -162,13 +173,21 @@ private fun ProxyBrandMark(
             drawPath(
                 path = ProxyBrandMarkPath,
                 brush = microstructure.fine,
-                alpha = if (liquid) 0.34f else 0.24f,
+                alpha = when {
+                    liquid -> 0.34f
+                    oldScroll -> 0.48f
+                    else -> 0.24f
+                },
                 style = Stroke(66f, cap = StrokeCap.Round, join = StrokeJoin.Round),
             )
             drawPath(
                 path = ProxyBrandMarkPath,
                 brush = microstructure.spectral,
-                alpha = if (liquid) 0.24f else 0.14f,
+                alpha = when {
+                    liquid -> 0.24f
+                    oldScroll -> 0.30f
+                    else -> 0.14f
+                },
                 style = Stroke(62f, cap = StrokeCap.Round, join = StrokeJoin.Round),
             )
             drawPath(
@@ -188,6 +207,7 @@ private fun ProxyBrandWordmark(
     val palette = LocalStainPaletteColors.current
     val microstructure = LocalMaterialMicrostructure.current
     val liquid = style.theme == AppTheme.LIQUID_GLASS
+    val oldScroll = style.theme == AppTheme.OLD_SCROLL
     val textStyle = TextStyle(
         fontFamily = MaterialTheme.typography.titleMedium.fontFamily,
         fontWeight = FontWeight.Bold,
@@ -195,19 +215,24 @@ private fun ProxyBrandWordmark(
         letterSpacing = (-0.7).sp,
     )
     val body = Brush.linearGradient(
-        colors = if (liquid) {
-            listOf(
+        colors = when (style.theme) {
+            AppTheme.LIQUID_GLASS -> listOf(
                 palette.primary,
                 palette.secondary,
                 palette.caustic,
                 palette.tertiary,
             )
-        } else {
-            listOf(
+            AppTheme.ROYAL_GRAPHITE -> listOf(
                 palette.caustic,
                 palette.primary,
                 Color(0xFF6D7880),
                 palette.secondary,
+            )
+            AppTheme.OLD_SCROLL -> listOf(
+                Color(0xFF5B3D22),
+                palette.primary,
+                palette.caustic,
+                Color(0xFF79532D),
             )
         },
         start = Offset(-40f + phase * 34f, 0f),
@@ -215,9 +240,17 @@ private fun ProxyBrandWordmark(
     )
     val highlight = Brush.verticalGradient(
         colors = listOf(
-            Color.White.copy(alpha = if (liquid) 0.72f else 0.24f),
+            Color.White.copy(alpha = when {
+                liquid -> 0.72f
+                oldScroll -> 0.42f
+                else -> 0.24f
+            }),
             Color.Transparent,
-            palette.caustic.copy(alpha = if (liquid) 0.22f else 0.10f),
+            palette.caustic.copy(alpha = when {
+                liquid -> 0.22f
+                oldScroll -> 0.16f
+                else -> 0.10f
+            }),
         ),
     )
 
@@ -226,9 +259,17 @@ private fun ProxyBrandWordmark(
             text = "ProxyScroll",
             modifier = Modifier.offset(y = 1.2.dp),
             style = textStyle.copy(
-                color = style.shadow.copy(alpha = if (liquid) 0.42f else 0.82f),
+                color = style.shadow.copy(alpha = when {
+                    liquid -> 0.42f
+                    oldScroll -> 0.56f
+                    else -> 0.82f
+                }),
                 shadow = Shadow(
-                    color = palette.primary.copy(alpha = if (liquid) 0.20f else 0.10f),
+                    color = palette.primary.copy(alpha = when {
+                        liquid -> 0.20f
+                        oldScroll -> 0.12f
+                        else -> 0.10f
+                    }),
                     offset = Offset(0f, 1f),
                     blurRadius = 4f,
                 ),
@@ -240,14 +281,26 @@ private fun ProxyBrandWordmark(
             style = textStyle.copy(brush = microstructure.fine),
             color = Color.Unspecified,
             modifier = Modifier
-                .graphicsLayer { alpha = if (liquid) 0.22f else 0.16f },
+                .graphicsLayer {
+                    alpha = when {
+                        liquid -> 0.22f
+                        oldScroll -> 0.34f
+                        else -> 0.16f
+                    }
+                },
         )
         Text(
             text = "ProxyScroll",
             style = textStyle.copy(brush = microstructure.spectral),
             color = Color.Unspecified,
             modifier = Modifier
-                .graphicsLayer { alpha = if (liquid) 0.14f else 0.09f },
+                .graphicsLayer {
+                    alpha = when {
+                        liquid -> 0.14f
+                        oldScroll -> 0.20f
+                        else -> 0.09f
+                    }
+                },
         )
         Text(
             text = "ProxyScroll",
