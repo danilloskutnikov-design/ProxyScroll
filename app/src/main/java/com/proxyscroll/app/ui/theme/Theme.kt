@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InterfaceShape
+import com.proxyscroll.app.domain.resolveFor
 import com.proxyscroll.app.domain.StainPalette
 import com.proxyscroll.app.domain.StainSettings
 import kotlin.math.abs
@@ -461,17 +462,7 @@ fun ProxyScrollTheme(
         { materialPhase.value * materialMotionScale.value }
     }
     val effectiveInterfaceShape = remember(selectedTheme, interfaceShape) {
-        if (selectedTheme == AppTheme.OLD_SCROLL && interfaceShape == InterfaceShape()) {
-            InterfaceShape(
-                globalCornerDp = 8,
-                cardCornerDp = 8,
-                inputCornerDp = 8,
-                buttonCornerDp = 10,
-                linked = false,
-            )
-        } else {
-            interfaceShape
-        }
+        interfaceShape.resolveFor(selectedTheme)
     }
     val view = LocalView.current
 
@@ -817,6 +808,31 @@ private fun MaterialBackground(
                             Color(0xFFD4B985),
                         ),
                     ),
+                )
+                // The ruling lives inside the paper substrate: it receives the
+                // same warm light, edge ageing and grain as the sheet itself.
+                val ruleSpacing = 30.dp.toPx()
+                var ruleY = ruleSpacing * 2.15f
+                while (ruleY < size.height + ruleSpacing) {
+                    drawLine(
+                        color = Color(0xFF6F89A0).copy(alpha = 0.115f),
+                        start = Offset(0f, ruleY),
+                        end = Offset(size.width, ruleY),
+                        strokeWidth = 0.72.dp.toPx(),
+                    )
+                    drawLine(
+                        color = palette.caustic.copy(alpha = 0.075f),
+                        start = Offset(0f, ruleY + 1.15.dp.toPx()),
+                        end = Offset(size.width, ruleY + 1.15.dp.toPx()),
+                        strokeWidth = 0.42.dp.toPx(),
+                    )
+                    ruleY += ruleSpacing
+                }
+                drawLine(
+                    color = Color(0xFFB46B5D).copy(alpha = 0.12f),
+                    start = Offset(44.dp.toPx(), 0f),
+                    end = Offset(44.dp.toPx(), size.height),
+                    strokeWidth = 0.85.dp.toPx(),
                 )
                 val warmLight = Offset(
                     x = size.width * (0.36f + activeDrift * 0.035f),
