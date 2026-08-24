@@ -34,11 +34,24 @@ private data class StyleRun(
     val style: CharacterStyle,
 )
 
+private data class RichTextSnapshot(
+    val value: TextFieldValue,
+    val styleRuns: List<StyleRun>,
+    val typingStyle: CharacterStyle,
+)
+
 @Stable
 class RichTextState(
     text: String,
     spans: List<NoteSpan>,
 ) {
+    private val undoStack = ArrayDeque<RichTextSnapshot>()
+    private val redoStack = ArrayDeque<RichTextSnapshot>()
+    private var historyRevision by mutableIntStateOf(0)
+    private var lastTextEditAtMillis = 0L
+    private var lastTextEditCursor = -1
+    private var lastTextEditWasCoalescible = false
+
     private var styleRuns by mutableStateOf(runsFromSpans(text, spans))
     private var typingStyle by mutableStateOf(
         styleRuns.lastOrNull()?.style ?: CharacterStyle(),
@@ -59,6 +72,18 @@ class RichTextState(
         get() = RunsVisualTransformation(styleRuns)
 
     val hasSelection: Boolean get() = !value.selection.collapsed
+
+    val canUndo: Boolean
+        get() {
+            historyRevision
+            return undoStack.isNotEmpty()
+        }
+
+    val canRedo: Boolean
+        get() {
+            historyRevision
+            return redoStack.isNotEmpty()
+        }
 
     val selectionLength: Int
         get() = kotlin.math.abs(value.selection.end - value.selection.start)
@@ -89,12 +114,24 @@ class RichTextState(
         val newText = newValue.text
 
         if (oldText == newText) {
+            val selectionChanged = value.selection != newValue.selection
             value = newValue.asPlainValue()
             if (newValue.selection.collapsed) {
                 typingStyle = styleAtCursor(newValue.selection.start)
             }
+            if (selectionChanged) resetTextHistoryGroup()
             return
         }
+
+        val now = System.nanoTime() / 1_000_000L
+        val coalescible = value.selection.collapsed &&
+            newValue.selection.collapsed &&
+            kotlin.math.abs(newText.length - oldText.length) <= 2
+        val continuesTextGroup = coalescible &&
+            lastTextEditWasCoalescible &&
+            now - lastTextEditAtMillis <= HISTORY_GROUP_MILLIS &&
+            kotlin.math.abs(value.selection.end - lastTextEditCursor) <= 1
+        recordHistory(skipPush = continuesTextGroup)
 
         val prefix = commonPrefixLength(oldText, newText)
         val suffix = commonSuffixLength(oldText, newText, prefix)
@@ -123,6 +160,21 @@ class RichTextState(
         styleRuns = normalizeRuns(updatedRuns, newText.length)
         value = newValue.asPlainValue()
         revision++
+        lastTextEditAtMillis = now
+        lastTextEditCursor = newValue.selection.end
+        lastTextEditWasCoalescible = coalescible
+    }
+
+    fun undo() {
+        val previous = undoStack.removeLastOrNull() ?: return
+        pushBounded(redoStack, snapshot())
+        restore(previous)
+    }
+
+    fun redo() {
+        val next = redoStack.removeLastOrNull() ?: return
+        pushBounded(undoStack, snapshot())
+        restore(next)
     }
 
     fun toggleBold() = transformSelection(
@@ -161,6 +213,14 @@ class RichTextState(
             forceEnabled = true,
             isActive = { it.fontSizeSp == safeSize },
             transform = { style, _ -> style.copy(fontSizeSp = safeSize) },
+        )
+    }
+
+    fun clearFormatting() {
+        transformSelection(
+            forceEnabled = true,
+            isActive = { false },
+            transform = { _, _ -> CharacterStyle() },
         )
     }
 
@@ -215,6 +275,8 @@ class RichTextState(
         transform: (CharacterStyle, Boolean) -> CharacterStyle,
     ) {
         val range = normalizedSelection()
+        recordHistory(skipPush = false)
+        resetTextHistoryGroup()
         if (range.first == range.second) {
             val enabled = if (forceEnabled) true else !isActive(typingStyle)
             typingStyle = transform(typingStyle, enabled)
@@ -250,6 +312,48 @@ class RichTextState(
             value.text.length,
         )
         revision++
+    }
+
+    private fun snapshot() = RichTextSnapshot(
+        value = value.asPlainValue(),
+        styleRuns = styleRuns.toList(),
+        typingStyle = typingStyle,
+    )
+
+    private fun recordHistory(skipPush: Boolean) {
+        var historyChanged = false
+        if (!skipPush) {
+            pushBounded(undoStack, snapshot())
+            historyChanged = true
+        }
+        if (redoStack.isNotEmpty()) {
+            redoStack.clear()
+            historyChanged = true
+        }
+        if (historyChanged) historyRevision++
+    }
+
+    private fun restore(snapshot: RichTextSnapshot) {
+        value = snapshot.value.asPlainValue()
+        styleRuns = snapshot.styleRuns
+        typingStyle = snapshot.typingStyle
+        resetTextHistoryGroup()
+        historyRevision++
+        revision++
+    }
+
+    private fun resetTextHistoryGroup() {
+        lastTextEditAtMillis = 0L
+        lastTextEditCursor = -1
+        lastTextEditWasCoalescible = false
+    }
+
+    private fun pushBounded(
+        stack: ArrayDeque<RichTextSnapshot>,
+        snapshot: RichTextSnapshot,
+    ) {
+        if (stack.size >= MAX_HISTORY_SNAPSHOTS) stack.removeFirst()
+        stack.addLast(snapshot)
     }
 
     private fun activeStyles(): List<CharacterStyle> {
@@ -295,6 +399,9 @@ class RichTextState(
             ?: typingStyle
     }
 }
+
+private const val HISTORY_GROUP_MILLIS = 750L
+private const val MAX_HISTORY_SNAPSHOTS = 80
 
 fun annotatedText(
     text: String,
