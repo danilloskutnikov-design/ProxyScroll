@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatClear
 import androidx.compose.material.icons.filled.FormatSize
@@ -71,7 +72,9 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.Redo
@@ -145,9 +148,12 @@ import com.proxyscroll.app.domain.MIN_INTERFACE_CORNER_DP
 import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteColorFlag
 import com.proxyscroll.app.domain.NoteSpan
+import com.proxyscroll.app.domain.resolveFor
 import com.proxyscroll.app.domain.StainMotion
 import com.proxyscroll.app.domain.StainPalette
 import com.proxyscroll.app.domain.StainSettings
+import com.proxyscroll.app.domain.TRASH_RETENTION_DAYS
+import com.proxyscroll.app.domain.TRASH_RETENTION_MILLIS
 import com.proxyscroll.app.ui.editor.MAX_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.MIN_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.RichTextState
@@ -169,6 +175,8 @@ import java.text.DateFormat
 import java.util.Date
 import kotlin.math.roundToInt
 
+private enum class ProxyDestination { NOTES, EDITOR, TRASH }
+
 @Composable
 fun ProxyScrollApp(
     viewModel: NotesViewModel,
@@ -186,34 +194,25 @@ fun ProxyScrollApp(
     val appScope = rememberCoroutineScope()
     var editorOpen by remember { mutableStateOf(false) }
     var editorNote by remember { mutableStateOf<Note?>(null) }
+    var showTrash by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var typingQuiet by remember { mutableStateOf(false) }
     var scrollingQuiet by remember { mutableStateOf(false) }
     val settingsChromeShape = remember(showSettings) {
-        if (selectedTheme == AppTheme.OLD_SCROLL && interfaceShape == InterfaceShape()) {
-            InterfaceShape(
-                globalCornerDp = 8,
-                cardCornerDp = 8,
-                inputCornerDp = 8,
-                buttonCornerDp = 10,
-                linked = false,
-            )
-        } else {
-            interfaceShape
-        }
+        interfaceShape.resolveFor(selectedTheme)
     }
     val settingsFogProgress by animateFloatAsState(
-        targetValue = if (showSettings && !editorOpen) 1f else 0f,
+        targetValue = if (showSettings && !editorOpen && !showTrash) 1f else 0f,
         animationSpec = tween(520, easing = FastOutSlowInEasing),
         label = "settings-fog-progress",
     )
     val settingsFogRadius by animateDpAsState(
-        targetValue = if (showSettings && !editorOpen) 4.dp else 0.dp,
+        targetValue = if (showSettings && !editorOpen && !showTrash) 4.dp else 0.dp,
         animationSpec = tween(360, easing = FastOutSlowInEasing),
         label = "settings-fog-radius",
     )
     val settingsBackgroundScale by animateFloatAsState(
-        targetValue = if (showSettings && !editorOpen) 0.985f else 1f,
+        targetValue = if (showSettings && !editorOpen && !showTrash) 0.985f else 1f,
         animationSpec = tween(520, easing = FastOutSlowInEasing),
         label = "settings-background-depth",
     )
@@ -240,9 +239,13 @@ fun ProxyScrollApp(
                     modifier = Modifier.fillMaxSize(),
                 )
                 AnimatedContent(
-                    targetState = editorOpen,
+                    targetState = when {
+                        editorOpen -> ProxyDestination.EDITOR
+                        showTrash -> ProxyDestination.TRASH
+                        else -> ProxyDestination.NOTES
+                    },
                     transitionSpec = {
-                        if (targetState) {
+                        if (targetState == ProxyDestination.EDITOR) {
                             (fadeIn(tween(300)) +
                                 slideInHorizontally(tween(380)) { it / 8 } +
                                 scaleIn(tween(380), initialScale = 0.955f)) togetherWith
@@ -259,18 +262,18 @@ fun ProxyScrollApp(
                         }
                     },
                     label = "notes-editor-transition",
-                ) { isEditing ->
-                    if (isEditing) {
+                ) { destination ->
+                    if (destination == ProxyDestination.EDITOR) {
                         NoteEditorScreen(
                             note = editorNote,
                             inputMotion = inputMotion,
                             onSave = viewModel::save,
                             onDelete = { deletedNote ->
-                                viewModel.delete(deletedNote)
+                                viewModel.moveToTrash(deletedNote)
                                 editorOpen = false
                                 appScope.launch {
                                     val result = snackbarHostState.showSnackbar(
-                                        message = "Заметка удалена",
+                                        message = "Заметка перемещена в корзину",
                                         actionLabel = "Отменить",
                                         duration = SnackbarDuration.Long,
                                     )
@@ -281,6 +284,14 @@ fun ProxyScrollApp(
                             },
                             onClose = { editorOpen = false },
                             onTypingQuietChanged = { typingQuiet = it },
+                        )
+                    } else if (destination == ProxyDestination.TRASH) {
+                        TrashScreen(
+                            notes = state.trash,
+                            onBack = { showTrash = false },
+                            onRestore = viewModel::restore,
+                            onDeleteForever = viewModel::deleteForever,
+                            onEmptyTrash = viewModel::emptyTrash,
                         )
                     } else {
                         NotesScreen(
@@ -295,16 +306,35 @@ fun ProxyScrollApp(
                                 editorOpen = true
                             },
                             onTogglePinned = viewModel::togglePinned,
-                            onColorFlagChanged = viewModel::setColorFlag,
+                            onBulkPinned = viewModel::setPinned,
+                            onBulkColorFlagChanged = viewModel::setColorFlag,
+                            onMoveToTrash = { notes ->
+                                viewModel.moveToTrash(notes)
+                                appScope.launch {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = if (notes.size == 1) {
+                                            "Заметка перемещена в корзину"
+                                        } else {
+                                            "${notes.size} заметок перемещено в корзину"
+                                        },
+                                        actionLabel = "Отменить",
+                                        duration = SnackbarDuration.Long,
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        viewModel.restore(notes)
+                                    }
+                                }
+                            },
                             onScrollQuietChanged = { scrollingQuiet = it },
                             onOpenSettings = { showSettings = true },
+                            onOpenTrash = { showTrash = true },
                         )
                     }
                 }
             }
 
             AnimatedVisibility(
-                visible = showSettings && !editorOpen,
+                visible = showSettings && !editorOpen && !showTrash,
                 modifier = Modifier
                     .fillMaxSize()
                     .zIndex(10f),
@@ -449,14 +479,36 @@ private fun NotesScreen(
     onCreate: () -> Unit,
     onEdit: (Note) -> Unit,
     onTogglePinned: (Note) -> Unit,
-    onColorFlagChanged: (Note, NoteColorFlag) -> Unit,
+    onBulkPinned: (Collection<Note>, Boolean) -> Unit,
+    onBulkColorFlagChanged: (Collection<Note>, NoteColorFlag) -> Unit,
+    onMoveToTrash: (List<Note>) -> Unit,
     onScrollQuietChanged: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenTrash: () -> Unit,
 ) {
     val searchInteractionSource = remember { MutableInteractionSource() }
     val searchFocused by searchInteractionSource.collectIsFocusedAsState()
     val noteGroups = remember(state.notes) { groupNotesByFlag(state.notes) }
     val listState = rememberLazyListState()
+    var selectedIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    val selectedIdSet = selectedIds.toSet()
+    val notesById = state.notes.associateBy { it.id }
+    val selectedNotes = selectedIds.mapNotNull(notesById::get)
+    val selectionMode = selectedIds.isNotEmpty()
+    val allVisibleSelected = state.notes.isNotEmpty() && selectedIds.size == state.notes.size
+    val allSelectedPinned = selectedNotes.isNotEmpty() && selectedNotes.all { it.isPinned }
+    fun toggleSelection(noteId: String) {
+        selectedIds = if (noteId in selectedIdSet) {
+            selectedIds.filterNot { it == noteId }
+        } else {
+            selectedIds + noteId
+        }
+    }
+    BackHandler(enabled = selectionMode) { selectedIds = emptyList() }
+    LaunchedEffect(state.notes.map { it.id }) {
+        val activeIds = state.notes.mapTo(mutableSetOf()) { it.id }
+        selectedIds = selectedIds.filter { it in activeIds }
+    }
     val currentScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
@@ -478,23 +530,129 @@ private fun NotesScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    ProxyBrandLockup()
+                    if (selectionMode) {
+                        Text("${selectedIds.size} выбрано")
+                    } else {
+                        ProxyBrandLockup()
+                    }
+                },
+                navigationIcon = {
+                    if (selectionMode) {
+                        IconButton(onClick = { selectedIds = emptyList() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Отменить выбор")
+                        }
+                    }
                 },
                 actions = {
-                    ProxySurface(
-                        modifier = Modifier
-                            .padding(end = 12.dp)
-                            .size(44.dp)
-                            .animatedClick(onClick = onOpenSettings, pressedScale = 0.96f),
-                        role = ProxySurfaceRole.BUTTON,
-                        strong = true,
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (selectionMode) {
+                        IconButton(
+                            onClick = {
+                                selectedIds = if (allVisibleSelected) {
+                                    emptyList()
+                                } else {
+                                    state.notes.map { it.id }
+                                }
+                            },
+                        ) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Выбрать все")
+                        }
+                        BulkFlagMenuButton(
+                            onSelected = { flag ->
+                                onBulkColorFlagChanged(selectedNotes, flag)
+                            },
+                        )
+                        IconButton(
+                            onClick = {
+                                onBulkPinned(selectedNotes, !allSelectedPinned)
+                            },
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Настройки",
-                                tint = MaterialTheme.colorScheme.onSurface,
+                                Icons.Default.PushPin,
+                                contentDescription = if (allSelectedPinned) {
+                                    "Открепить выбранные"
+                                } else {
+                                    "Закрепить выбранные"
+                                },
+                                tint = if (allSelectedPinned) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
                             )
+                        }
+                        IconButton(
+                            onClick = {
+                                val moving = selectedNotes
+                                selectedIds = emptyList()
+                                onMoveToTrash(moving)
+                            },
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Переместить в корзину",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.padding(end = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            ProxySurface(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .animatedClick(onClick = onOpenTrash, pressedScale = 0.96f),
+                                role = ProxySurfaceRole.BUTTON,
+                                strong = state.trash.isNotEmpty(),
+                            ) {
+                                Box(
+                                    Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.RestoreFromTrash,
+                                        contentDescription = "Корзина",
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    if (state.trash.isNotEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .size(16.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                text = state.trash.size.coerceAtMost(99).toString(),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimary,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            ProxySurface(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .animatedClick(
+                                        onClick = onOpenSettings,
+                                        pressedScale = 0.96f,
+                                    ),
+                                role = ProxySurfaceRole.BUTTON,
+                                strong = true,
+                            ) {
+                                Box(
+                                    Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = "Настройки",
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
                         }
                     }
                 },
@@ -505,20 +663,22 @@ private fun NotesScreen(
             )
         },
         floatingActionButton = {
-            ProxySurface(
-                modifier = Modifier
-                    .size(60.dp)
-                    .animatedClick(onClick = onCreate, pressedScale = 0.96f),
-                role = ProxySurfaceRole.BUTTON,
-                strong = true,
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Новая заметка",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(30.dp),
-                    )
+            if (!selectionMode) {
+                ProxySurface(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .animatedClick(onClick = onCreate, pressedScale = 0.96f),
+                    role = ProxySurfaceRole.BUTTON,
+                    strong = true,
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Новая заметка",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(30.dp),
+                        )
+                    }
                 }
             }
         },
@@ -612,16 +772,327 @@ private fun NotesScreen(
                         ) { _, note ->
                             NoteCard(
                                 note = note,
-                                onClick = { onEdit(note) },
-                                onTogglePinned = { onTogglePinned(note) },
-                                onColorFlagChanged = { flag ->
-                                    onColorFlagChanged(note, flag)
+                                selected = note.id in selectedIdSet,
+                                selectionMode = selectionMode,
+                                selectionOrder = selectedIds.indexOf(note.id) + 1,
+                                onClick = {
+                                    if (selectionMode) toggleSelection(note.id) else onEdit(note)
                                 },
+                                onLongClick = { toggleSelection(note.id) },
+                                onTogglePinned = { onTogglePinned(note) },
                                 modifier = Modifier.animateItem(),
                             )
                         }
                     }
                     item { Spacer(Modifier.height(96.dp)) }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TrashScreen(
+    notes: List<Note>,
+    onBack: () -> Unit,
+    onRestore: (Collection<Note>) -> Unit,
+    onDeleteForever: (Collection<Note>) -> Unit,
+    onEmptyTrash: () -> Unit,
+) {
+    var selectedIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    var pendingPermanentDelete by remember { mutableStateOf<List<Note>?>(null) }
+    var confirmEmptyTrash by remember { mutableStateOf(false) }
+    val selectedSet = selectedIds.toSet()
+    val notesById = notes.associateBy { it.id }
+    val selectedNotes = selectedIds.mapNotNull(notesById::get)
+    val selectionMode = selectedIds.isNotEmpty()
+    val allSelected = notes.isNotEmpty() && selectedIds.size == notes.size
+    fun toggleSelection(noteId: String) {
+        selectedIds = if (noteId in selectedSet) {
+            selectedIds.filterNot { it == noteId }
+        } else {
+            selectedIds + noteId
+        }
+    }
+    BackHandler {
+        if (selectionMode) selectedIds = emptyList() else onBack()
+    }
+    LaunchedEffect(notes.map { it.id }) {
+        val available = notes.mapTo(mutableSetOf()) { it.id }
+        selectedIds = selectedIds.filter { it in available }
+    }
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(if (selectionMode) "${selectedIds.size} выбрано" else "Корзина")
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = {
+                            if (selectionMode) selectedIds = emptyList() else onBack()
+                        },
+                    ) {
+                        Icon(
+                            if (selectionMode) Icons.Default.Close else Icons.Default.ArrowBack,
+                            contentDescription = if (selectionMode) "Отменить выбор" else "Назад",
+                        )
+                    }
+                },
+                actions = {
+                    if (selectionMode) {
+                        IconButton(
+                            onClick = {
+                                selectedIds = if (allSelected) emptyList() else notes.map { it.id }
+                            },
+                        ) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Выбрать всё")
+                        }
+                        IconButton(
+                            onClick = {
+                                val restoring = selectedNotes
+                                selectedIds = emptyList()
+                                onRestore(restoring)
+                            },
+                        ) {
+                            Icon(Icons.Default.Undo, contentDescription = "Восстановить выбранные")
+                        }
+                        IconButton(onClick = { pendingPermanentDelete = selectedNotes }) {
+                            Icon(
+                                Icons.Default.DeleteForever,
+                                contentDescription = "Удалить выбранные навсегда",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    } else if (notes.isNotEmpty()) {
+                        IconButton(onClick = { confirmEmptyTrash = true }) {
+                            Icon(
+                                Icons.Default.DeleteForever,
+                                contentDescription = "Очистить корзину",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                ),
+            )
+        },
+    ) { contentPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding)
+                .padding(horizontal = 16.dp),
+        ) {
+            ProxyInsetSurface(
+                modifier = Modifier.fillMaxWidth(),
+                role = ProxySurfaceRole.CARD,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.RestoreFromTrash,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Удалённые заметки хранятся $TRASH_RETENTION_DAYS дней",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            "Можно восстановить или удалить навсегда раньше",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            if (notes.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Корзина пуста", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Удалённые заметки появятся здесь",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    itemsIndexed(notes, key = { _, note -> note.id }) { _, note ->
+                        TrashNoteCard(
+                            note = note,
+                            selected = note.id in selectedSet,
+                            selectionMode = selectionMode,
+                            selectionOrder = selectedIds.indexOf(note.id) + 1,
+                            onClick = {
+                                if (selectionMode) toggleSelection(note.id)
+                            },
+                            onLongClick = { toggleSelection(note.id) },
+                            onRestore = { onRestore(listOf(note)) },
+                            onDeleteForever = { pendingPermanentDelete = listOf(note) },
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
+                    item { Spacer(Modifier.height(24.dp)) }
+                }
+            }
+        }
+    }
+
+    pendingPermanentDelete?.let { deleting ->
+        AlertDialog(
+            onDismissRequest = { pendingPermanentDelete = null },
+            title = { Text("Удалить навсегда?") },
+            text = {
+                Text(
+                    if (deleting.size == 1) {
+                        "Заметку нельзя будет восстановить."
+                    } else {
+                        "${deleting.size} заметок нельзя будет восстановить."
+                    },
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingPermanentDelete = null }) { Text("Отмена") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteForever(deleting)
+                        selectedIds = emptyList()
+                        pendingPermanentDelete = null
+                    },
+                ) {
+                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+        )
+    }
+    if (confirmEmptyTrash) {
+        AlertDialog(
+            onDismissRequest = { confirmEmptyTrash = false },
+            title = { Text("Очистить корзину?") },
+            text = { Text("Все ${notes.size} заметок будут удалены без возможности восстановления.") },
+            dismissButton = {
+                TextButton(onClick = { confirmEmptyTrash = false }) { Text("Отмена") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onEmptyTrash()
+                        confirmEmptyTrash = false
+                    },
+                ) {
+                    Text("Очистить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun TrashNoteCard(
+    note: Note,
+    selected: Boolean,
+    selectionMode: Boolean,
+    selectionOrder: Int,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onRestore: () -> Unit,
+    onDeleteForever: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val dayMillis = TRASH_RETENTION_MILLIS / TRASH_RETENTION_DAYS
+    val deletedAt = note.deletedAt ?: System.currentTimeMillis()
+    val remainingMillis = (TRASH_RETENTION_MILLIS -
+        (System.currentTimeMillis() - deletedAt)).coerceAtLeast(0L)
+    val daysRemaining = ((remainingMillis + dayMillis - 1L) / dayMillis).coerceAtLeast(1L)
+    ProxySurface(
+        modifier = modifier
+            .fillMaxWidth()
+            .animatedCombinedClick(onClick = onClick, onLongClick = onLongClick),
+        role = ProxySurfaceRole.CARD,
+        strong = selected,
+        active = selected,
+        interactive = false,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (selected) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            selectionOrder.coerceAtLeast(1).toString(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                } else {
+                    Text(
+                        "#${note.index.toString().padStart(3, '0')}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    note.title.ifBlank { "Без названия" },
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (note.body.isNotBlank()) {
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    annotatedText(note.body, note.spans),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.height(9.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Осталось: $daysRemaining дн.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                if (!selectionMode) {
+                    IconButton(onClick = onRestore, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.Undo, contentDescription = "Восстановить")
+                    }
+                    IconButton(onClick = onDeleteForever, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            Icons.Default.DeleteForever,
+                            contentDescription = "Удалить навсегда",
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         }
@@ -730,21 +1201,24 @@ private fun notesCountLabel(count: Int): String {
 @Composable
 private fun NoteCard(
     note: Note,
+    selected: Boolean,
+    selectionMode: Boolean,
+    selectionOrder: Int,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onTogglePinned: () -> Unit,
-    onColorFlagChanged: (NoteColorFlag) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showFlagMenu by remember(note.id) { mutableStateOf(false) }
     Box(modifier = modifier.fillMaxWidth()) {
         ProxySurface(
             modifier = Modifier
                 .fillMaxWidth()
                 .animatedCombinedClick(
                     onClick = onClick,
-                    onLongClick = { showFlagMenu = true },
+                    onLongClick = onLongClick,
                 ),
-            strong = note.isPinned,
+            strong = note.isPinned || selected,
+            active = selected,
             role = ProxySurfaceRole.CARD,
             interactive = false,
         ) {
@@ -771,6 +1245,33 @@ private fun NoteCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        AnimatedContent(
+                            targetState = selected,
+                            transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(110)) },
+                            label = "note-selection-${note.id}",
+                        ) { isSelected ->
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = selectionOrder.coerceAtLeast(1).toString(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = "#${note.index.toString().padStart(3, '0')}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                         Text(
                             text = note.title.ifBlank { "Без названия" },
                             style = MaterialTheme.typography.titleMedium,
@@ -778,16 +1279,22 @@ private fun NoteCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        IconButton(onClick = onTogglePinned, modifier = Modifier.size(36.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.PushPin,
-                                contentDescription = if (note.isPinned) "Открепить" else "Закрепить",
-                                tint = if (note.isPinned) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
+                        if (!selectionMode) {
+                            IconButton(onClick = onTogglePinned, modifier = Modifier.size(36.dp)) {
+                                Icon(
+                                    imageVector = Icons.Default.PushPin,
+                                    contentDescription = if (note.isPinned) {
+                                        "Открепить"
+                                    } else {
+                                        "Закрепить"
+                                    },
+                                    tint = if (note.isPinned) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            }
                         }
                     }
                     if (note.body.isNotBlank()) {
@@ -822,14 +1329,26 @@ private fun NoteCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BulkFlagMenuButton(
+    onSelected: (NoteColorFlag) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(Icons.Default.Palette, contentDescription = "Цвет выбранных заметок")
+        }
         NoteFlagDropdown(
-            expanded = showFlagMenu,
-            selected = note.colorFlag,
-            helperText = "Цвет применяется сразу",
-            onDismiss = { showFlagMenu = false },
+            expanded = expanded,
+            selected = NoteColorFlag.NONE,
+            helperText = "Цвет применится ко всему выбранному массиву",
+            onDismiss = { expanded = false },
             onSelected = { flag ->
-                showFlagMenu = false
-                onColorFlagChanged(flag)
+                expanded = false
+                onSelected(flag)
             },
         )
     }
@@ -1769,6 +2288,12 @@ private fun SettingsSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetCorner = (LocalProxyShape.current.globalCornerDp + 8).coerceAtMost(32).dp
+    val resolvedShape = interfaceShape.resolveFor(selectedTheme)
+    val themeShapeLabel = when (selectedTheme) {
+        AppTheme.LIQUID_GLASS -> "Мягкая геометрия стекла"
+        AppTheme.ROYAL_GRAPHITE -> "Сдержанная геометрия графита"
+        AppTheme.OLD_SCROLL -> "Твёрдый бумажный срез"
+    }
     val dismissInteraction = remember { MutableInteractionSource() }
     BackHandler(onBack = onDismiss)
 
@@ -1971,149 +2496,184 @@ private fun SettingsSheet(
                         )
                     }
                 }
-                Spacer(Modifier.height(14.dp))
-                ShapeLivePreview(interfaceShape)
-                Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.height(18.dp))
                 Text("Форма интерфейса", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Настройте характер углов и сразу увидите результат",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Text("Характер углов", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        text = "${interfaceShape.globalCornerDp} dp",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                Slider(
-                    value = interfaceShape.globalCornerDp.toFloat(),
-                    onValueChange = {
-                        onInterfaceShapeChanged(interfaceShape.withGlobalCorner(it.roundToInt()))
-                    },
-                    valueRange = MIN_INTERFACE_CORNER_DP.toFloat()..MAX_INTERFACE_CORNER_DP.toFloat(),
-                    steps = MAX_INTERFACE_CORNER_DP - MIN_INTERFACE_CORNER_DP - 1,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(Modifier.fillMaxWidth()) {
-                    Text(
-                        "Угловато",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        "Мягко",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ShapePreset(
-                        label = "Угловато",
-                        value = 8,
-                        selected = interfaceShape.globalCornerDp == 8,
-                        onClick = {
-                            onInterfaceShapeChanged(interfaceShape.withGlobalCorner(8))
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ShapePreset(
-                        label = "Баланс",
-                        value = 14,
-                        selected = interfaceShape.globalCornerDp == 14,
-                        onClick = {
-                            onInterfaceShapeChanged(interfaceShape.withGlobalCorner(14))
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ShapePreset(
-                        label = "Мягко",
-                        value = 24,
-                        selected = interfaceShape.globalCornerDp == 24,
-                        onClick = {
-                            onInterfaceShapeChanged(interfaceShape.withGlobalCorner(24))
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(6.dp))
                 ProxyInsetSurface(
                     modifier = Modifier.fillMaxWidth(),
                     role = ProxySurfaceRole.CARD,
+                    selected = interfaceShape.customEnabled,
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("Связать все элементы", style = MaterialTheme.typography.titleMedium)
+                            Text("Настраивать вручную", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = if (interfaceShape.linked) {
-                                    "Один характер углов для всего"
+                                text = if (interfaceShape.customEnabled) {
+                                    "Shape Studio управляет всеми углами"
                                 } else {
-                                    "Точная настройка каждого элемента"
+                                    "$themeShapeLabel · тема управляет формой"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Switch(
-                            checked = interfaceShape.linked,
+                            checked = interfaceShape.customEnabled,
                             onCheckedChange = {
-                                onInterfaceShapeChanged(interfaceShape.withLinked(it))
+                                onInterfaceShapeChanged(interfaceShape.copy(customEnabled = it))
                             },
                         )
                     }
                 }
+                Spacer(Modifier.height(12.dp))
+                ShapeLivePreview(resolvedShape)
                 AnimatedVisibility(
-                    visible = !interfaceShape.linked,
-                    enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { -it / 4 },
-                    exit = fadeOut(tween(160)) + slideOutVertically(tween(200)) { -it / 4 },
+                    visible = interfaceShape.customEnabled,
+                    enter = fadeIn(tween(220)) + slideInVertically(tween(300)) { -it / 5 },
+                    exit = fadeOut(tween(160)) + slideOutVertically(tween(220)) { -it / 5 },
                 ) {
                     Column {
+                        Spacer(Modifier.height(16.dp))
+                        Row(Modifier.fillMaxWidth()) {
+                            Text("Характер углов", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text = "${interfaceShape.globalCornerDp} dp",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Slider(
+                            value = interfaceShape.globalCornerDp.toFloat(),
+                            onValueChange = {
+                                onInterfaceShapeChanged(
+                                    interfaceShape.withGlobalCorner(it.roundToInt()),
+                                )
+                            },
+                            valueRange = MIN_INTERFACE_CORNER_DP.toFloat()..
+                                MAX_INTERFACE_CORNER_DP.toFloat(),
+                            steps = MAX_INTERFACE_CORNER_DP - MIN_INTERFACE_CORNER_DP - 1,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(Modifier.fillMaxWidth()) {
+                            Text(
+                                "Твёрдо",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                "Мягко",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            listOf("Строго" to 4, "Баланс" to 14, "Мягко" to 24)
+                                .forEach { (label, value) ->
+                                    ShapePreset(
+                                        label = label,
+                                        value = value,
+                                        selected = interfaceShape.globalCornerDp == value,
+                                        onClick = {
+                                            onInterfaceShapeChanged(
+                                                interfaceShape.withGlobalCorner(value),
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                        }
                         Spacer(Modifier.height(10.dp))
                         ProxyInsetSurface(
                             modifier = Modifier.fillMaxWidth(),
                             role = ProxySurfaceRole.CARD,
                         ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        "Связать все элементы",
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                    Text(
+                                        text = if (interfaceShape.linked) {
+                                            "Один характер углов для всего"
+                                        } else {
+                                            "Точная настройка каждого элемента"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(
+                                    checked = interfaceShape.linked,
+                                    onCheckedChange = {
+                                        onInterfaceShapeChanged(interfaceShape.withLinked(it))
+                                    },
+                                )
+                            }
+                        }
+                        AnimatedVisibility(
+                            visible = !interfaceShape.linked,
+                            enter = fadeIn(tween(220)) +
+                                slideInVertically(tween(260)) { -it / 4 },
+                            exit = fadeOut(tween(160)) +
+                                slideOutVertically(tween(200)) { -it / 4 },
+                        ) {
                             Column {
-                                CornerControlRow(
-                                    label = "Карточки",
-                                    value = interfaceShape.cardCornerDp,
-                                    onValueChange = {
-                                        onInterfaceShapeChanged(interfaceShape.withCardCorner(it))
-                                    },
-                                )
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
-                                )
-                                CornerControlRow(
-                                    label = "Поля ввода",
-                                    value = interfaceShape.inputCornerDp,
-                                    onValueChange = {
-                                        onInterfaceShapeChanged(interfaceShape.withInputCorner(it))
-                                    },
-                                )
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
-                                )
-                                CornerControlRow(
-                                    label = "Кнопки",
-                                    value = interfaceShape.buttonCornerDp,
-                                    onValueChange = {
-                                        onInterfaceShapeChanged(interfaceShape.withButtonCorner(it))
-                                    },
-                                )
+                                Spacer(Modifier.height(10.dp))
+                                ProxyInsetSurface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    role = ProxySurfaceRole.CARD,
+                                ) {
+                                    Column {
+                                        CornerControlRow(
+                                            label = "Карточки",
+                                            value = interfaceShape.cardCornerDp,
+                                            onValueChange = {
+                                                onInterfaceShapeChanged(
+                                                    interfaceShape.withCardCorner(it),
+                                                )
+                                            },
+                                        )
+                                        HorizontalDivider(
+                                            color = MaterialTheme.colorScheme.outline
+                                                .copy(alpha = 0.14f),
+                                        )
+                                        CornerControlRow(
+                                            label = "Поля ввода",
+                                            value = interfaceShape.inputCornerDp,
+                                            onValueChange = {
+                                                onInterfaceShapeChanged(
+                                                    interfaceShape.withInputCorner(it),
+                                                )
+                                            },
+                                        )
+                                        HorizontalDivider(
+                                            color = MaterialTheme.colorScheme.outline
+                                                .copy(alpha = 0.14f),
+                                        )
+                                        CornerControlRow(
+                                            label = "Кнопки",
+                                            value = interfaceShape.buttonCornerDp,
+                                            onValueChange = {
+                                                onInterfaceShapeChanged(
+                                                    interfaceShape.withButtonCorner(it),
+                                                )
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
