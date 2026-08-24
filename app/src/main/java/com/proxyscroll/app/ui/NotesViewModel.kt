@@ -70,6 +70,17 @@ class NotesViewModel(
         refresh()
     }
 
+    fun setColorFlag(note: Note, colorFlag: NoteColorFlag) {
+        if (note.colorFlag == colorFlag) return
+        repository.upsert(
+            note.copy(
+                colorFlag = colorFlag,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+        refresh()
+    }
+
     fun delete(note: Note) {
         repository.delete(note.id)
         refresh()
