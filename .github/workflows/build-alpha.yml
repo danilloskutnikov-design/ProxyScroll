@@ -50,7 +50,9 @@ jobs:
         run: |
           set -euo pipefail
           for apk in installers/*.apk; do
-            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f 4 "$apk" "$apk.aligned"
+            aligned_apk="$RUNNER_TEMP/$(basename "$apk").aligned"
+            signed_apk="$RUNNER_TEMP/$(basename "$apk").signed"
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f 4 "$apk" "$aligned_apk"
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
               --ks app/proxyscroll-alpha.keystore \
               --ks-key-alias proxyscrollalpha \
@@ -60,9 +62,9 @@ jobs:
               --v2-signing-enabled true \
               --v3-signing-enabled true \
               --v4-signing-enabled false \
-              --out "$apk.signed" \
-              "$apk.aligned"
-            mv "$apk.signed" "$apk"
+              --out "$signed_apk" \
+              "$aligned_apk"
+            mv "$signed_apk" "$apk"
           done
 
       - name: Verify installability
