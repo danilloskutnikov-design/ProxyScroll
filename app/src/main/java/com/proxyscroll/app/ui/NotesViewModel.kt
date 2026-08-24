@@ -3,6 +3,7 @@ package com.proxyscroll.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.proxyscroll.app.domain.Note
+import com.proxyscroll.app.domain.NoteSpan
 import com.proxyscroll.app.domain.NotesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,20 +34,26 @@ class NotesViewModel(
         }
     }
 
-    fun save(existing: Note?, title: String, body: String) {
-        if (title.isBlank() && body.isBlank()) return
+    fun save(
+        existing: Note?,
+        title: String,
+        body: String,
+        spans: List<NoteSpan>,
+    ): Note? {
+        if (existing == null && title.isBlank() && body.isBlank()) return null
         val now = System.currentTimeMillis()
-        repository.upsert(
-            Note(
-                id = existing?.id ?: UUID.randomUUID().toString(),
-                title = title.trim(),
-                body = body.trim(),
-                isPinned = existing?.isPinned ?: false,
-                createdAt = existing?.createdAt ?: now,
-                updatedAt = now,
-            ),
+        val saved = Note(
+            id = existing?.id ?: UUID.randomUUID().toString(),
+            title = title.trimEnd(),
+            body = body,
+            spans = spans,
+            isPinned = existing?.isPinned ?: false,
+            createdAt = existing?.createdAt ?: now,
+            updatedAt = now,
         )
+        repository.upsert(saved)
         refresh()
+        return saved
     }
 
     fun togglePinned(note: Note) {

@@ -3,9 +3,14 @@ package com.proxyscroll.app.ui.theme
 import android.app.Activity
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -23,149 +28,98 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
-import com.proxyscroll.app.R
 import com.proxyscroll.app.domain.AppTheme
+import kotlin.math.sin
 
-private const val THEME_TRANSITION_MILLIS = 560
+private const val THEME_TRANSITION_MILLIS = 720
 
 private val LiquidGlassColors = lightColorScheme(
-    primary = Color(0xFF4655D7),
+    primary = Color(0xFF4055D9),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFDCE3FF),
-    onPrimaryContainer = Color(0xFF17205C),
-    secondary = Color(0xFF3E7584),
+    primaryContainer = Color(0xFFDDE5FF),
+    onPrimaryContainer = Color(0xFF15205D),
+    secondary = Color(0xFF287784),
     onSecondary = Color.White,
-    background = Color(0xFFF1F4FF),
-    onBackground = Color(0xFF171A29),
-    surface = Color(0xFFF8FAFF),
-    onSurface = Color(0xFF171A29),
-    surfaceVariant = Color(0xFFE4E8F7),
-    onSurfaceVariant = Color(0xFF53586B),
-    outline = Color(0xFF8C92AA),
+    background = Color(0xFFF2F5FF),
+    onBackground = Color(0xFF171A28),
+    surface = Color(0xFFF9FAFF),
+    onSurface = Color(0xFF171A28),
+    surfaceVariant = Color(0xFFE6EAF7),
+    onSurfaceVariant = Color(0xFF555B6D),
+    outline = Color(0xFF858DA8),
+    error = Color(0xFFBA1A1A),
 )
 
 private val RoyalGraphiteColors = darkColorScheme(
-    primary = Color(0xFF9BC3D2),
-    onPrimary = Color(0xFF0B2028),
+    primary = Color(0xFFA7C9D5),
+    onPrimary = Color(0xFF0A222B),
     primaryContainer = Color(0xFF263C45),
-    onPrimaryContainer = Color(0xFFC5E8F3),
-    secondary = Color(0xFF9AAAB2),
+    onPrimaryContainer = Color(0xFFC8E9F2),
+    secondary = Color(0xFF9FACB3),
     onSecondary = Color(0xFF172126),
-    background = Color(0xFF090C0F),
-    onBackground = Color(0xFFE7ECEF),
-    surface = Color(0xFF14191D),
-    onSurface = Color(0xFFE7ECEF),
-    surfaceVariant = Color(0xFF22292E),
-    onSurfaceVariant = Color(0xFFB6C0C6),
-    outline = Color(0xFF68747B),
-)
-
-private val LiquidTypography = Typography(
-    headlineMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 30.sp,
-        lineHeight = 36.sp,
-        letterSpacing = (-0.35).sp,
-    ),
-    titleLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
-    ),
-    titleMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 17.sp,
-        lineHeight = 23.sp,
-    ),
-    bodyMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 15.sp,
-        lineHeight = 22.sp,
-    ),
-)
-
-private val GraphiteTypography = Typography(
-    headlineMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 29.sp,
-        lineHeight = 36.sp,
-        letterSpacing = 0.25.sp,
-    ),
-    titleLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
-        letterSpacing = 0.15.sp,
-    ),
-    titleMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 17.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.12.sp,
-    ),
-    bodyMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 15.sp,
-        lineHeight = 23.sp,
-        letterSpacing = 0.08.sp,
-    ),
+    background = Color(0xFF080B0D),
+    onBackground = Color(0xFFE9EEF0),
+    surface = Color(0xFF12171A),
+    onSurface = Color(0xFFE9EEF0),
+    surfaceVariant = Color(0xFF20272B),
+    onSurfaceVariant = Color(0xFFB9C3C8),
+    outline = Color(0xFF69767D),
+    error = Color(0xFFFFB4AB),
 )
 
 data class ProxyVisualStyle(
     val theme: AppTheme,
-    val glassTop: Color,
-    val glassBottom: Color,
-    val glassStrongTop: Color,
-    val glassStrongBottom: Color,
-    val borderTop: Color,
-    val borderBottom: Color,
+    val materialTop: Color,
+    val materialMiddle: Color,
+    val materialBottom: Color,
+    val strongTop: Color,
+    val strongBottom: Color,
+    val rimLight: Color,
+    val rimShade: Color,
+    val specular: Color,
     val shadow: Color,
     val scrim: Color,
 )
 
 private val LiquidVisualStyle = ProxyVisualStyle(
     theme = AppTheme.LIQUID_GLASS,
-    glassTop = Color.White.copy(alpha = 0.68f),
-    glassBottom = Color.White.copy(alpha = 0.30f),
-    glassStrongTop = Color.White.copy(alpha = 0.86f),
-    glassStrongBottom = Color(0xFFC9D6FF).copy(alpha = 0.58f),
-    borderTop = Color.White.copy(alpha = 0.96f),
-    borderBottom = Color(0xFF7788D9).copy(alpha = 0.30f),
-    shadow = Color(0xFF344C92).copy(alpha = 0.22f),
-    scrim = Color(0xFF172146).copy(alpha = 0.28f),
+    materialTop = Color.White.copy(alpha = 0.42f),
+    materialMiddle = Color(0xFFF4F8FF).copy(alpha = 0.20f),
+    materialBottom = Color(0xFFB9CCFF).copy(alpha = 0.17f),
+    strongTop = Color.White.copy(alpha = 0.64f),
+    strongBottom = Color(0xFFC7D7FF).copy(alpha = 0.30f),
+    rimLight = Color.White.copy(alpha = 0.92f),
+    rimShade = Color(0xFF6A78B8).copy(alpha = 0.26f),
+    specular = Color.White.copy(alpha = 0.48f),
+    shadow = Color(0xFF30437D).copy(alpha = 0.16f),
+    scrim = Color(0xFF172146).copy(alpha = 0.25f),
 )
 
 private val GraphiteVisualStyle = ProxyVisualStyle(
     theme = AppTheme.ROYAL_GRAPHITE,
-    glassTop = Color(0xFF222A30).copy(alpha = 0.94f),
-    glassBottom = Color(0xFF101519).copy(alpha = 0.91f),
-    glassStrongTop = Color(0xFF2D373E).copy(alpha = 0.97f),
-    glassStrongBottom = Color(0xFF11171B).copy(alpha = 0.96f),
-    borderTop = Color(0xFFB7C7D0).copy(alpha = 0.24f),
-    borderBottom = Color(0xFF41505A).copy(alpha = 0.16f),
-    shadow = Color.Black.copy(alpha = 0.70f),
+    materialTop = Color(0xFF252C30).copy(alpha = 0.88f),
+    materialMiddle = Color(0xFF151A1D).copy(alpha = 0.90f),
+    materialBottom = Color(0xFF0D1113).copy(alpha = 0.94f),
+    strongTop = Color(0xFF30393E).copy(alpha = 0.94f),
+    strongBottom = Color(0xFF101518).copy(alpha = 0.97f),
+    rimLight = Color(0xFFC3D2D8).copy(alpha = 0.24f),
+    rimShade = Color.Black.copy(alpha = 0.72f),
+    specular = Color(0xFFCAE3EC).copy(alpha = 0.11f),
+    shadow = Color.Black.copy(alpha = 0.62f),
     scrim = Color.Black.copy(alpha = 0.58f),
 )
 
@@ -182,19 +136,21 @@ fun ProxyScrollTheme(
     }
     val animatedScheme = animateScheme(targetScheme)
     val visualStyle = animateVisualStyle(selectedTheme)
-    val typography = when (selectedTheme) {
-        AppTheme.LIQUID_GLASS -> LiquidTypography
-        AppTheme.ROYAL_GRAPHITE -> GraphiteTypography
-    }
+    val typographyProgress = animateFloatAsState(
+        targetValue = if (selectedTheme == AppTheme.LIQUID_GLASS) 0f else 1f,
+        animationSpec = tween(THEME_TRANSITION_MILLIS),
+        label = "typography-material-transition",
+    ).value
+    val typography = animatedTypography(typographyProgress)
     val view = LocalView.current
 
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as? Activity)?.window ?: return@SideEffect
             val controller = WindowCompat.getInsetsController(window, view)
-            val useDarkIcons = selectedTheme == AppTheme.LIQUID_GLASS
-            controller.isAppearanceLightStatusBars = useDarkIcons
-            controller.isAppearanceLightNavigationBars = useDarkIcons
+            val lightIcons = selectedTheme == AppTheme.LIQUID_GLASS
+            controller.isAppearanceLightStatusBars = lightIcons
+            controller.isAppearanceLightNavigationBars = lightIcons
         }
     }
 
@@ -208,15 +164,55 @@ fun ProxyScrollTheme(
 }
 
 @Composable
+private fun animatedTypography(progress: Float): Typography {
+    fun between(start: Float, end: Float) = start + (end - start) * progress
+    return Typography(
+        headlineMedium = TextStyle(
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = between(30f, 29f).sp,
+            lineHeight = between(36f, 37f).sp,
+            letterSpacing = between(-0.35f, 0.18f).sp,
+        ),
+        titleLarge = TextStyle(
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = between(22f, 21.5f).sp,
+            lineHeight = between(28f, 29f).sp,
+            letterSpacing = between(-0.10f, 0.12f).sp,
+        ),
+        titleMedium = TextStyle(
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 17.sp,
+            lineHeight = between(23f, 24f).sp,
+            letterSpacing = between(0f, 0.10f).sp,
+        ),
+        bodyLarge = TextStyle(
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.Normal,
+            fontSize = 19.sp,
+            lineHeight = between(29f, 30f).sp,
+            letterSpacing = between(0f, 0.08f).sp,
+        ),
+        bodyMedium = TextStyle(
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.Normal,
+            fontSize = 15.sp,
+            lineHeight = between(22f, 23f).sp,
+            letterSpacing = between(0f, 0.07f).sp,
+        ),
+    )
+}
+
+@Composable
 private fun animateScheme(target: ColorScheme): ColorScheme {
     @Composable
-    fun animated(targetColor: Color, label: String): Color {
-        return animateColorAsState(
-            targetValue = targetColor,
-            animationSpec = tween(THEME_TRANSITION_MILLIS),
-            label = label,
-        ).value
-    }
+    fun animated(color: Color, label: String) = animateColorAsState(
+        targetValue = color,
+        animationSpec = tween(THEME_TRANSITION_MILLIS),
+        label = label,
+    ).value
 
     return target.copy(
         primary = animated(target.primary, "theme-primary"),
@@ -232,35 +228,33 @@ private fun animateScheme(target: ColorScheme): ColorScheme {
         surfaceVariant = animated(target.surfaceVariant, "theme-surface-variant"),
         onSurfaceVariant = animated(target.onSurfaceVariant, "theme-on-surface-variant"),
         outline = animated(target.outline, "theme-outline"),
+        error = animated(target.error, "theme-error"),
     )
 }
 
 @Composable
 private fun animateVisualStyle(theme: AppTheme): ProxyVisualStyle {
-    val target = when (theme) {
-        AppTheme.LIQUID_GLASS -> LiquidVisualStyle
-        AppTheme.ROYAL_GRAPHITE -> GraphiteVisualStyle
-    }
+    val target = if (theme == AppTheme.LIQUID_GLASS) LiquidVisualStyle else GraphiteVisualStyle
 
     @Composable
-    fun animated(targetColor: Color, label: String): Color {
-        return animateColorAsState(
-            targetValue = targetColor,
-            animationSpec = tween(THEME_TRANSITION_MILLIS),
-            label = label,
-        ).value
-    }
+    fun animated(color: Color, label: String) = animateColorAsState(
+        targetValue = color,
+        animationSpec = tween(THEME_TRANSITION_MILLIS),
+        label = label,
+    ).value
 
     return target.copy(
         theme = theme,
-        glassTop = animated(target.glassTop, "glass-top"),
-        glassBottom = animated(target.glassBottom, "glass-bottom"),
-        glassStrongTop = animated(target.glassStrongTop, "glass-strong-top"),
-        glassStrongBottom = animated(target.glassStrongBottom, "glass-strong-bottom"),
-        borderTop = animated(target.borderTop, "glass-border-top"),
-        borderBottom = animated(target.borderBottom, "glass-border-bottom"),
-        shadow = animated(target.shadow, "glass-shadow"),
-        scrim = animated(target.scrim, "glass-scrim"),
+        materialTop = animated(target.materialTop, "material-top"),
+        materialMiddle = animated(target.materialMiddle, "material-middle"),
+        materialBottom = animated(target.materialBottom, "material-bottom"),
+        strongTop = animated(target.strongTop, "strong-top"),
+        strongBottom = animated(target.strongBottom, "strong-bottom"),
+        rimLight = animated(target.rimLight, "rim-light"),
+        rimShade = animated(target.rimShade, "rim-shade"),
+        specular = animated(target.specular, "specular"),
+        shadow = animated(target.shadow, "material-shadow"),
+        scrim = animated(target.scrim, "material-scrim"),
     )
 }
 
@@ -272,102 +266,137 @@ fun ProxyThemeBackground(
     Crossfade(
         targetState = selectedTheme,
         modifier = modifier,
-        animationSpec = tween(THEME_TRANSITION_MILLIS + 120),
-        label = "theme-background-crossfade",
+        animationSpec = tween(THEME_TRANSITION_MILLIS + 180),
+        label = "material-background",
     ) { theme ->
-        when (theme) {
-            AppTheme.LIQUID_GLASS -> LiquidGlassBackground()
-            AppTheme.ROYAL_GRAPHITE -> RoyalGraphiteBackground()
-        }
+        MaterialBackground(theme)
     }
 }
 
 @Composable
-private fun LiquidGlassBackground() {
+private fun MaterialBackground(theme: AppTheme) {
+    val transition = rememberInfiniteTransition(label = "ambient-material-motion")
+    val drift = transition.animateFloat(
+        initialValue = -1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(18_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "ambient-drift",
+    ).value
+
     Canvas(Modifier.fillMaxSize()) {
-        drawRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFFF8FAFF),
-                    Color(0xFFE9EEFF),
-                    Color(0xFFF2F7F8),
+        if (theme == AppTheme.LIQUID_GLASS) {
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFF9FBFF),
+                        Color(0xFFE8EDFF),
+                        Color(0xFFEAF7F6),
+                    ),
+                    start = Offset.Zero,
+                    end = Offset(size.width, size.height),
                 ),
-                start = Offset.Zero,
-                end = Offset(size.width, size.height),
-            ),
-        )
-        val blueCenter = Offset(size.width * 0.08f, size.height * 0.13f)
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color(0xFF829CFF).copy(alpha = 0.40f),
-                    Color.Transparent,
+            )
+            val blue = Offset(
+                x = size.width * (0.14f + drift * 0.035f),
+                y = size.height * 0.18f,
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF6F88FF).copy(alpha = 0.34f),
+                        Color(0xFF9DB5FF).copy(alpha = 0.12f),
+                        Color.Transparent,
+                    ),
+                    center = blue,
+                    radius = size.width * 0.94f,
                 ),
-                center = blueCenter,
-                radius = size.width * 0.88f,
-            ),
-            radius = size.width * 0.88f,
-            center = blueCenter,
-        )
-        val cyanCenter = Offset(size.width * 0.94f, size.height * 0.54f)
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color(0xFF67D8DC).copy(alpha = 0.26f),
-                    Color.Transparent,
+                center = blue,
+                radius = size.width * 0.94f,
+            )
+            val aqua = Offset(
+                x = size.width * (0.93f - drift * 0.025f),
+                y = size.height * 0.58f,
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(
+                        Color(0xFF55D5D5).copy(alpha = 0.24f),
+                        Color.Transparent,
+                    ),
+                    center = aqua,
+                    radius = size.width * 0.78f,
                 ),
-                center = cyanCenter,
-                radius = size.width * 0.76f,
-            ),
-            radius = size.width * 0.76f,
-            center = cyanCenter,
-        )
-        val violetCenter = Offset(size.width * 0.30f, size.height * 0.94f)
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color(0xFFC485FF).copy(alpha = 0.18f),
-                    Color.Transparent,
+                center = aqua,
+                radius = size.width * 0.78f,
+            )
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.White.copy(alpha = 0.26f),
+                        Color(0xFFB98CFF).copy(alpha = 0.11f),
+                        Color.Transparent,
+                    ),
+                    start = Offset(size.width * (0.10f + drift * 0.08f), 0f),
+                    end = Offset(size.width * (0.72f + drift * 0.08f), size.height),
                 ),
-                center = violetCenter,
-                radius = size.width * 0.72f,
-            ),
-            radius = size.width * 0.72f,
-            center = violetCenter,
-        )
-    }
-}
-
-@Composable
-private fun RoyalGraphiteBackground() {
-    Box(Modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(R.drawable.royal_graphite),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            alpha = 0.82f,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Canvas(Modifier.fillMaxSize()) {
+            )
+        } else {
             drawRect(
                 brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF071014).copy(alpha = 0.76f),
-                        Color(0xFF090D10).copy(alpha = 0.30f),
-                        Color(0xFF020405).copy(alpha = 0.72f),
+                    listOf(
+                        Color(0xFF11171A),
+                        Color(0xFF090C0E),
+                        Color(0xFF050708),
                     ),
                 ),
             )
             drawRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF29414B).copy(alpha = 0.16f),
+                        Color(0xFF6F8994).copy(alpha = 0.10f),
                         Color.Transparent,
-                        Color.Black.copy(alpha = 0.28f),
+                        Color.Black.copy(alpha = 0.40f),
                     ),
-                    start = Offset.Zero,
-                    end = Offset(size.width, size.height * 0.72f),
+                    start = Offset(size.width * (0.04f + drift * 0.025f), 0f),
+                    end = Offset(size.width, size.height * 0.82f),
                 ),
+            )
+            repeat(38) { index ->
+                val fraction = index / 37f
+                val x = size.width * fraction + sin(index * 1.7).toFloat() * 5f
+                val alpha = if (index % 7 == 0) 0.075f else 0.028f
+                drawLine(
+                    color = Color(0xFFC6D4D9).copy(alpha = alpha),
+                    start = Offset(x, 0f),
+                    end = Offset(x + drift * 5f, size.height),
+                    strokeWidth = if (index % 7 == 0) 1.2f else 0.55f,
+                )
+            }
+            repeat(12) { index ->
+                val y = size.height * (index + 1) / 13f
+                drawLine(
+                    color = Color.Black.copy(alpha = 0.13f),
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y + sin(index.toFloat()) * 2f),
+                    strokeWidth = 1.4f,
+                )
+            }
+            val wetLight = Offset(size.width * 0.17f, size.height * (0.22f + drift * 0.03f))
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF8DAAB5).copy(alpha = 0.09f),
+                        Color.Transparent,
+                    ),
+                    center = wetLight,
+                    radius = size.width * 0.64f,
+                ),
+                center = wetLight,
+                radius = size.width * 0.64f,
             )
         }
     }
@@ -382,11 +411,11 @@ fun ProxySurface(
 ) {
     val style = LocalProxyVisualStyle.current
     val resolvedShape = shape ?: RoundedCornerShape(
-        if (style.theme == AppTheme.LIQUID_GLASS) 28.dp else 18.dp,
+        if (style.theme == AppTheme.LIQUID_GLASS) 28.dp else 20.dp,
     )
-    val top = if (strong) style.glassStrongTop else style.glassTop
-    val bottom = if (strong) style.glassStrongBottom else style.glassBottom
-    val elevation = if (style.theme == AppTheme.LIQUID_GLASS) 12.dp else 8.dp
+    val top = if (strong) style.strongTop else style.materialTop
+    val bottom = if (strong) style.strongBottom else style.materialBottom
+    val elevation = if (style.theme == AppTheme.LIQUID_GLASS) 9.dp else 6.dp
 
     Box(
         modifier = modifier
@@ -397,11 +426,48 @@ fun ProxySurface(
                 spotColor = style.shadow,
             )
             .clip(resolvedShape)
-            .background(Brush.linearGradient(listOf(top, bottom)))
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(top, style.materialMiddle, bottom),
+                ),
+            )
+            .drawWithCache {
+                val highlight = Brush.linearGradient(
+                    colors = listOf(
+                        style.specular,
+                        Color.Transparent,
+                        style.specular.copy(alpha = style.specular.alpha * 0.32f),
+                    ),
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, size.height),
+                )
+                onDrawWithContent {
+                    drawContent()
+                    drawRoundRect(
+                        brush = highlight,
+                        cornerRadius = CornerRadius(size.minDimension * 0.20f),
+                    )
+                    if (style.theme == AppTheme.ROYAL_GRAPHITE) {
+                        repeat(9) { index ->
+                            val y = size.height * (index + 1) / 10f
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.012f),
+                                start = Offset(0f, y),
+                                end = Offset(size.width, y - 1.5f),
+                                strokeWidth = 0.7f,
+                            )
+                        }
+                    }
+                }
+            }
             .border(
                 width = 1.dp,
                 brush = Brush.linearGradient(
-                    colors = listOf(style.borderTop, style.borderBottom),
+                    colors = listOf(
+                        style.rimLight,
+                        style.rimLight.copy(alpha = style.rimLight.alpha * 0.25f),
+                        style.rimShade,
+                    ),
                 ),
                 shape = resolvedShape,
             ),
