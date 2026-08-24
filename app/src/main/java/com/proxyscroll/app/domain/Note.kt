@@ -7,6 +7,8 @@ data class Note(
     val spans: List<NoteSpan> = emptyList(),
     val isPinned: Boolean,
     val colorFlag: NoteColorFlag = NoteColorFlag.NONE,
+    /** Persistent colour group. Built-ins mirror legacy flags; custom IDs are user-created. */
+    val groupId: String? = colorFlag.defaultGroupId(),
     val createdAt: Long,
     val updatedAt: Long,
     /** Stable, human-readable sequence number. It is never reused or renumbered. */

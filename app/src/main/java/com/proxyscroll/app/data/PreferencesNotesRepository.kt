@@ -3,8 +3,11 @@ package com.proxyscroll.app.data
 import android.content.SharedPreferences
 import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteColorFlag
+import com.proxyscroll.app.domain.NoteGroup
 import com.proxyscroll.app.domain.NoteSpan
 import com.proxyscroll.app.domain.NotesRepository
+import com.proxyscroll.app.domain.DEFAULT_NOTE_GROUPS
+import com.proxyscroll.app.domain.defaultGroupId
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -17,6 +20,51 @@ class PreferencesNotesRepository(
 
     override fun getTrash(): List<Note> {
         return readAll().filter { it.deletedAt != null }
+    }
+
+    override fun getGroups(): List<NoteGroup> {
+        val raw = preferences.getString(KEY_GROUPS, null)
+        val custom = runCatching {
+            val array = JSONArray(raw ?: "[]")
+            buildList {
+                repeat(array.length()) { index ->
+                    val item = array.getJSONObject(index)
+                    add(
+                        NoteGroup(
+                            id = item.getString("id"),
+                            name = item.optString("name").trim().take(28),
+                            colorArgb = item.optLong("colorArgb", 0xFF65B9FF),
+                            order = item.optInt("order", DEFAULT_NOTE_GROUPS.size + index),
+                            builtIn = false,
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+        return (DEFAULT_NOTE_GROUPS + custom)
+            .distinctBy { it.id }
+            .sortedBy { it.order }
+    }
+
+    override fun upsertGroup(group: NoteGroup) {
+        if (group.builtIn || group.name.isBlank()) return
+        val custom = getGroups().filterNot { it.builtIn || it.id == group.id } +
+            group.copy(name = group.name.trim().take(28), builtIn = false)
+        persistGroups(custom)
+    }
+
+    override fun deleteGroup(groupId: String) {
+        if (DEFAULT_NOTE_GROUPS.any { it.id == groupId }) return
+        val custom = getGroups().filterNot { it.builtIn || it.id == groupId }
+        persistGroups(custom)
+        val notes = readAll().map { note ->
+            if (note.groupId == groupId) {
+                note.copy(groupId = null, colorFlag = NoteColorFlag.NONE)
+            } else {
+                note
+            }
+        }
+        persist(notes)
     }
 
     override fun upsert(note: Note) {
@@ -125,6 +173,7 @@ class PreferencesNotesRepository(
         })
         put("isPinned", isPinned)
         put("colorFlag", colorFlag.storageKey)
+        put("groupId", groupId ?: JSONObject.NULL)
         put("createdAt", createdAt)
         put("updatedAt", updatedAt)
         put("index", index)
@@ -153,13 +202,20 @@ class PreferencesNotesRepository(
                 }
             }
         }
+        val colorFlag = NoteColorFlag.fromStorage(optString("colorFlag", null))
+        val groupId = if (has("groupId") && !isNull("groupId")) {
+            optString("groupId").takeIf { it.isNotBlank() }
+        } else {
+            colorFlag.defaultGroupId()
+        }
         return Note(
             id = getString("id"),
             title = optString("title"),
             body = body,
             spans = spans,
             isPinned = optBoolean("isPinned"),
-            colorFlag = NoteColorFlag.fromStorage(optString("colorFlag", null)),
+            colorFlag = colorFlag,
+            groupId = groupId,
             createdAt = optLong("createdAt"),
             updatedAt = optLong("updatedAt"),
             index = optLong("index", 0L),
@@ -167,7 +223,21 @@ class PreferencesNotesRepository(
         )
     }
 
+    private fun persistGroups(groups: List<NoteGroup>) {
+        val array = JSONArray()
+        groups.filterNot { it.builtIn }.sortedBy { it.order }.forEach { group ->
+            array.put(JSONObject().apply {
+                put("id", group.id)
+                put("name", group.name)
+                put("colorArgb", group.colorArgb)
+                put("order", group.order)
+            })
+        }
+        preferences.edit().putString(KEY_GROUPS, array.toString()).apply()
+    }
+
     private companion object {
         const val KEY_NOTES = "notes_v1"
+        const val KEY_GROUPS = "note_groups_v1"
     }
 }

@@ -4,9 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteColorFlag
+import com.proxyscroll.app.domain.NoteGroup
 import com.proxyscroll.app.domain.NoteSpan
 import com.proxyscroll.app.domain.NotesRepository
 import com.proxyscroll.app.domain.TRASH_RETENTION_MILLIS
+import com.proxyscroll.app.domain.defaultGroupId
+import com.proxyscroll.app.domain.legacyFlagForGroup
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +18,7 @@ import java.util.UUID
 data class NotesUiState(
     val notes: List<Note> = emptyList(),
     val trash: List<Note> = emptyList(),
+    val groups: List<NoteGroup> = emptyList(),
     val query: String = "",
 )
 
@@ -38,6 +42,11 @@ class NotesViewModel(
         if (existing == null && title.isBlank() && body.isBlank()) return null
         val now = System.currentTimeMillis()
         val resolvedTitle = title.trimEnd().ifBlank { titleFromBody(body) }
+        val resolvedGroupId = when {
+            existing == null -> colorFlag.defaultGroupId()
+            existing.colorFlag != colorFlag -> colorFlag.defaultGroupId()
+            else -> existing.groupId ?: colorFlag.defaultGroupId()
+        }
         val saved = Note(
             id = existing?.id ?: UUID.randomUUID().toString(),
             title = resolvedTitle,
@@ -45,6 +54,7 @@ class NotesViewModel(
             spans = spans,
             isPinned = existing?.isPinned ?: false,
             colorFlag = colorFlag,
+            groupId = resolvedGroupId,
             createdAt = existing?.createdAt ?: now,
             updatedAt = now,
             index = existing?.index?.takeIf { it > 0L } ?: nextIndex(),
@@ -70,6 +80,7 @@ class NotesViewModel(
         repository.upsert(
             note.copy(
                 colorFlag = colorFlag,
+                groupId = colorFlag.defaultGroupId(),
                 updatedAt = System.currentTimeMillis(),
             ),
         )
@@ -112,7 +123,49 @@ class NotesViewModel(
 
     fun setColorFlag(notes: Collection<Note>, colorFlag: NoteColorFlag) {
         val now = System.currentTimeMillis()
-        repository.upsertAll(notes.map { it.copy(colorFlag = colorFlag, updatedAt = now) })
+        repository.upsertAll(
+            notes.map {
+                it.copy(
+                    colorFlag = colorFlag,
+                    groupId = colorFlag.defaultGroupId(),
+                    updatedAt = now,
+                )
+            },
+        )
+        refresh()
+    }
+
+    fun setGroup(notes: Collection<Note>, groupId: String?) {
+        val now = System.currentTimeMillis()
+        repository.upsertAll(
+            notes.map {
+                it.copy(
+                    groupId = groupId,
+                    colorFlag = legacyFlagForGroup(groupId),
+                    updatedAt = now,
+                )
+            },
+        )
+        refresh()
+    }
+
+    fun createGroup(name: String, colorArgb: Long) {
+        val trimmed = name.trim().take(28)
+        if (trimmed.isBlank()) return
+        val order = (repository.getGroups().maxOfOrNull { it.order } ?: 0) + 1
+        repository.upsertGroup(
+            NoteGroup(
+                id = "custom.${UUID.randomUUID()}",
+                name = trimmed,
+                colorArgb = colorArgb,
+                order = order,
+            ),
+        )
+        refresh()
+    }
+
+    fun deleteGroup(groupId: String) {
+        repository.deleteGroup(groupId)
         refresh()
     }
 
@@ -129,6 +182,7 @@ class NotesViewModel(
             query = query,
             notes = sorted(active.filter { note -> note.matches(query) }),
             trash = repository.getTrash().sortedByDescending { it.deletedAt ?: Long.MIN_VALUE },
+            groups = repository.getGroups(),
         )
     }
 
