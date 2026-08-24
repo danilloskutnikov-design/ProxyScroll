@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ProxyScroll mark</title>
+  <desc id="desc">A continuous ribbon forming a page scroll, P and S.</desc>
+  <path
+    d="M 166 421
+       C 188 454, 226 476, 279 479
+       C 354 484, 406 454, 406 402
+       C 406 360, 376 335, 317 322
+       L 253 308
+       C 198 296, 166 277, 166 246
+       C 166 213, 203 195, 257 195
+       L 323 195
+       C 384 195, 425 166, 425 116
+       C 425 67, 387 37, 326 37
+       L 232 37
+       C 190 37, 166 58, 166 91
+       L 166 194"
+    fill="none"
+    stroke="#111827"
+    stroke-width="72"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+</svg>
