@@ -32,6 +32,9 @@ class MainActivity : ComponentActivity() {
             var inputMotion by remember {
                 mutableStateOf(themePreferences.getInputMotion())
             }
+            var interfaceShape by remember {
+                mutableStateOf(themePreferences.getInterfaceShape())
+            }
             val notesViewModel: NotesViewModel = viewModel(
                 factory = NotesViewModel.Factory(repository),
             )
@@ -46,6 +49,11 @@ class MainActivity : ComponentActivity() {
                 onInputMotionSelected = { motion ->
                     inputMotion = motion
                     themePreferences.setInputMotion(motion)
+                },
+                interfaceShape = interfaceShape,
+                onInterfaceShapeChanged = { shape ->
+                    interfaceShape = shape
+                    themePreferences.setInterfaceShape(shape)
                 },
             )
         }

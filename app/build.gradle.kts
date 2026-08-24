@@ -12,22 +12,25 @@ android {
         applicationId = "com.proxyscroll.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.4.0-alpha05"
+        versionCode = 6
+        versionName = "0.5.0-alpha06"
     }
 
+    val alphaKeystore = file("proxyscroll-alpha.keystore")
     signingConfigs {
-        create("alphaDebug") {
-            storeFile = file("proxyscroll-alpha.keystore")
-            storePassword = "android"
-            keyAlias = "proxyscrollalpha"
-            keyPassword = "android"
+        if (alphaKeystore.exists()) {
+            create("alphaDebug") {
+                storeFile = alphaKeystore
+                storePassword = "android"
+                keyAlias = "proxyscrollalpha"
+                keyPassword = "android"
+            }
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("alphaDebug")
+            signingConfigs.findByName("alphaDebug")?.let { signingConfig = it }
         }
         release {
             isMinifyEnabled = false

@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.proxyscroll.app.domain.AppTheme
+import com.proxyscroll.app.domain.InterfaceShape
 import kotlin.math.sin
 
 private const val THEME_TRANSITION_MILLIS = 720
@@ -98,15 +99,15 @@ data class ProxyVisualStyle(
 
 private val LiquidVisualStyle = ProxyVisualStyle(
     theme = AppTheme.LIQUID_GLASS,
-    materialTop = Color.White.copy(alpha = 0.28f),
-    materialMiddle = Color(0xFFF4F8FF).copy(alpha = 0.10f),
-    materialBottom = Color(0xFF9FB8FF).copy(alpha = 0.13f),
-    strongTop = Color.White.copy(alpha = 0.44f),
-    strongBottom = Color(0xFFB8CCFF).copy(alpha = 0.22f),
-    rimLight = Color.White.copy(alpha = 0.92f),
-    rimShade = Color(0xFF5367B1).copy(alpha = 0.32f),
-    specular = Color.White.copy(alpha = 0.26f),
-    shadow = Color(0xFF30437D).copy(alpha = 0.13f),
+    materialTop = Color.White.copy(alpha = 0.16f),
+    materialMiddle = Color(0xFFF4F8FF).copy(alpha = 0.045f),
+    materialBottom = Color(0xFF9FB8FF).copy(alpha = 0.075f),
+    strongTop = Color.White.copy(alpha = 0.25f),
+    strongBottom = Color(0xFFB8CCFF).copy(alpha = 0.12f),
+    rimLight = Color.White.copy(alpha = 0.88f),
+    rimShade = Color(0xFF5367B1).copy(alpha = 0.24f),
+    specular = Color.White.copy(alpha = 0.20f),
+    shadow = Color(0xFF30437D).copy(alpha = 0.10f),
     scrim = Color(0xFF172146).copy(alpha = 0.25f),
 )
 
@@ -125,10 +126,19 @@ private val GraphiteVisualStyle = ProxyVisualStyle(
 )
 
 val LocalProxyVisualStyle = staticCompositionLocalOf { LiquidVisualStyle }
+val LocalProxyShape = staticCompositionLocalOf { InterfaceShape() }
+
+enum class ProxySurfaceRole {
+    CARD,
+    INPUT,
+    BUTTON,
+    OVERLAY,
+}
 
 @Composable
 fun ProxyScrollTheme(
     selectedTheme: AppTheme,
+    interfaceShape: InterfaceShape = InterfaceShape(),
     content: @Composable () -> Unit,
 ) {
     val targetScheme = when (selectedTheme) {
@@ -155,7 +165,10 @@ fun ProxyScrollTheme(
         }
     }
 
-    CompositionLocalProvider(LocalProxyVisualStyle provides visualStyle) {
+    CompositionLocalProvider(
+        LocalProxyVisualStyle provides visualStyle,
+        LocalProxyShape provides interfaceShape,
+    ) {
         MaterialTheme(
             colorScheme = animatedScheme,
             typography = typography,
@@ -292,9 +305,9 @@ private fun MaterialBackground(theme: AppTheme) {
             drawRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFF5F8FF),
-                        Color(0xFFDDE5FF),
-                        Color(0xFFDFF5F2),
+                        Color(0xFFF8F9FE),
+                        Color(0xFFE9EEFB),
+                        Color(0xFFEDF7F6),
                     ),
                     start = Offset.Zero,
                     end = Offset(size.width, size.height),
@@ -307,8 +320,8 @@ private fun MaterialBackground(theme: AppTheme) {
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFF667EFF).copy(alpha = 0.48f),
-                        Color(0xFF9DB5FF).copy(alpha = 0.18f),
+                        Color(0xFF667EFF).copy(alpha = 0.27f),
+                        Color(0xFF9DB5FF).copy(alpha = 0.10f),
                         Color.Transparent,
                     ),
                     center = blue,
@@ -324,7 +337,7 @@ private fun MaterialBackground(theme: AppTheme) {
             drawCircle(
                 brush = Brush.radialGradient(
                     listOf(
-                        Color(0xFF3FD4D4).copy(alpha = 0.34f),
+                        Color(0xFF3FD4D4).copy(alpha = 0.19f),
                         Color.Transparent,
                     ),
                     center = aqua,
@@ -337,26 +350,23 @@ private fun MaterialBackground(theme: AppTheme) {
                 brush = Brush.linearGradient(
                     colors = listOf(
                         Color.Transparent,
-                        Color.White.copy(alpha = 0.26f),
-                        Color(0xFFB270FF).copy(alpha = 0.18f),
+                        Color.White.copy(alpha = 0.18f),
+                        Color(0xFFB270FF).copy(alpha = 0.10f),
                         Color.Transparent,
                     ),
                     start = Offset(size.width * (0.10f + drift * 0.08f), 0f),
                     end = Offset(size.width * (0.72f + drift * 0.08f), size.height),
                 ),
             )
-            repeat(3) { index ->
-                val radius = size.width * (0.46f + index * 0.13f)
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.09f - index * 0.018f),
-                    radius = radius,
-                    center = Offset(
-                        size.width * (0.72f - drift * 0.025f),
-                        size.height * 0.36f,
-                    ),
-                    style = Stroke(width = 1.4f + index * 0.5f),
-                )
-            }
+            drawCircle(
+                color = Color.White.copy(alpha = 0.08f),
+                radius = size.width * 0.58f,
+                center = Offset(
+                    size.width * (0.72f - drift * 0.025f),
+                    size.height * 0.36f,
+                ),
+                style = Stroke(width = 1.2f),
+            )
         } else {
             drawRect(
                 brush = Brush.verticalGradient(
@@ -419,16 +429,32 @@ private fun MaterialBackground(theme: AppTheme) {
 fun ProxySurface(
     modifier: Modifier = Modifier,
     shape: Shape? = null,
+    role: ProxySurfaceRole = ProxySurfaceRole.CARD,
     strong: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val style = LocalProxyVisualStyle.current
-    val resolvedShape = shape ?: RoundedCornerShape(
-        if (style.theme == AppTheme.LIQUID_GLASS) 28.dp else 20.dp,
-    )
+    val shapeSettings = LocalProxyShape.current
+    val cornerDp = when (role) {
+        ProxySurfaceRole.CARD -> shapeSettings.resolvedCardCornerDp
+        ProxySurfaceRole.INPUT -> shapeSettings.resolvedInputCornerDp
+        ProxySurfaceRole.BUTTON -> shapeSettings.resolvedButtonCornerDp
+        ProxySurfaceRole.OVERLAY -> (shapeSettings.globalCornerDp + 6).coerceAtMost(30)
+    }
+    val animatedCornerDp = animateFloatAsState(
+        targetValue = cornerDp.toFloat(),
+        animationSpec = tween(220),
+        label = "surface-corner-${role.name.lowercase()}",
+    ).value
+    val resolvedShape = shape ?: RoundedCornerShape(animatedCornerDp.dp)
     val top = if (strong) style.strongTop else style.materialTop
     val bottom = if (strong) style.strongBottom else style.materialBottom
-    val elevation = if (style.theme == AppTheme.LIQUID_GLASS) 9.dp else 6.dp
+    val elevation = when {
+        strong && style.theme == AppTheme.LIQUID_GLASS -> 8.dp
+        style.theme == AppTheme.LIQUID_GLASS -> 5.dp
+        strong -> 7.dp
+        else -> 4.dp
+    }
 
     Box(
         modifier = modifier
@@ -486,19 +512,10 @@ fun ProxySurface(
                     ),
                 )
                 onDrawWithContent {
-                    drawRoundRect(
-                        brush = highlight,
-                        cornerRadius = CornerRadius(size.minDimension * 0.20f),
-                    )
+                    drawRect(brush = highlight)
                     if (liquid) {
-                        drawRoundRect(
-                            brush = lens,
-                            cornerRadius = CornerRadius(size.minDimension * 0.20f),
-                        )
-                        drawRoundRect(
-                            brush = lowerRefraction,
-                            cornerRadius = CornerRadius(size.minDimension * 0.20f),
-                        )
+                        drawRect(brush = lens)
+                        drawRect(brush = lowerRefraction)
                     }
                     drawContent()
                     if (!liquid) {

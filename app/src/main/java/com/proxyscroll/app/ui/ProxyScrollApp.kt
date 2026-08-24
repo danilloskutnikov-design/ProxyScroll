@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -27,6 +28,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,12 +60,16 @@ import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -73,6 +79,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -102,6 +110,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
+import com.proxyscroll.app.domain.InterfaceShape
+import com.proxyscroll.app.domain.MAX_INTERFACE_CORNER_DP
+import com.proxyscroll.app.domain.MIN_INTERFACE_CORNER_DP
 import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteSpan
 import com.proxyscroll.app.ui.editor.MAX_NOTE_FONT_SIZE_SP
@@ -109,12 +120,15 @@ import com.proxyscroll.app.ui.editor.MIN_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.RichTextState
 import com.proxyscroll.app.ui.editor.annotatedText
 import com.proxyscroll.app.ui.theme.LocalProxyVisualStyle
+import com.proxyscroll.app.ui.theme.LocalProxyShape
 import com.proxyscroll.app.ui.theme.ProxyScrollTheme
 import com.proxyscroll.app.ui.theme.ProxySurface
+import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import com.proxyscroll.app.ui.theme.ProxyThemeBackground
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
+import kotlin.math.roundToInt
 
 @Composable
 fun ProxyScrollApp(
@@ -123,13 +137,18 @@ fun ProxyScrollApp(
     onThemeSelected: (AppTheme) -> Unit,
     inputMotion: InputMotion,
     onInputMotionSelected: (InputMotion) -> Unit,
+    interfaceShape: InterfaceShape,
+    onInterfaceShapeChanged: (InterfaceShape) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var editorOpen by remember { mutableStateOf(false) }
     var editorNote by remember { mutableStateOf<Note?>(null) }
     var showSettings by remember { mutableStateOf(false) }
 
-    ProxyScrollTheme(selectedTheme = selectedTheme) {
+    ProxyScrollTheme(
+        selectedTheme = selectedTheme,
+        interfaceShape = interfaceShape,
+    ) {
         Box(Modifier.fillMaxSize()) {
             ProxyThemeBackground(
                 selectedTheme = selectedTheme,
@@ -180,6 +199,8 @@ fun ProxyScrollApp(
                     onThemeSelected = onThemeSelected,
                     inputMotion = inputMotion,
                     onInputMotionSelected = onInputMotionSelected,
+                    interfaceShape = interfaceShape,
+                    onInterfaceShapeChanged = onInterfaceShapeChanged,
                     onDismiss = { showSettings = false },
                 )
             }
@@ -240,7 +261,7 @@ private fun NotesScreen(
                             .padding(end = 12.dp)
                             .size(44.dp)
                             .animatedClick(onClick = onOpenSettings, pressedScale = 0.90f),
-                        shape = CircleShape,
+                        role = ProxySurfaceRole.BUTTON,
                         strong = true,
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -261,9 +282,9 @@ private fun NotesScreen(
         floatingActionButton = {
             ProxySurface(
                 modifier = Modifier
-                    .size(64.dp)
+                    .size(60.dp)
                     .animatedClick(onClick = onCreate, pressedScale = 0.90f),
-                shape = RoundedCornerShape(25.dp),
+                role = ProxySurfaceRole.BUTTON,
                 strong = true,
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -297,24 +318,27 @@ private fun NotesScreen(
                 label = "note-count",
             ) { count ->
                 Text(
-                    text = "$count в текущем списке",
+                    text = notesCountLabel(count),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
             ProxySurface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .animateContentSize(animationSpec = tween(320)),
-                shape = RoundedCornerShape(24.dp),
+                role = ProxySurfaceRole.INPUT,
             ) {
+                val searchShape = RoundedCornerShape(
+                    LocalProxyShape.current.resolvedInputCornerDp.dp,
+                )
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = onQueryChange,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = searchShape,
                     placeholder = { Text("Найти заметку") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
@@ -332,7 +356,7 @@ private fun NotesScreen(
                     ),
                 )
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
 
             if (state.notes.isEmpty()) {
                 EmptyNotes(
@@ -343,7 +367,7 @@ private fun NotesScreen(
                 )
             } else {
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     itemsIndexed(
@@ -409,6 +433,16 @@ private fun EmptyNotes(
     }
 }
 
+private fun notesCountLabel(count: Int): String {
+    val ending = when {
+        count % 100 in 11..14 -> "заметок"
+        count % 10 == 1 -> "заметка"
+        count % 10 in 2..4 -> "заметки"
+        else -> "заметок"
+    }
+    return "$count $ending"
+}
+
 @Composable
 private fun NoteCard(
     note: Note,
@@ -420,8 +454,9 @@ private fun NoteCard(
             .fillMaxWidth()
             .animatedClick(onClick = onClick, pressedScale = 0.982f),
         strong = note.isPinned,
+        role = ProxySurfaceRole.CARD,
     ) {
-        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -433,7 +468,7 @@ private fun NoteCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onTogglePinned, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = onTogglePinned, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = Icons.Default.PushPin,
                         contentDescription = if (note.isPinned) "Открепить" else "Закрепить",
@@ -446,16 +481,16 @@ private fun NoteCard(
                 }
             }
             if (note.body.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(5.dp))
                 Text(
                     text = annotatedText(note.body, note.spans),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 5,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.height(13.dp))
+            Spacer(Modifier.height(9.dp))
             Text(
                 text = DateFormat.getDateTimeInstance(
                     DateFormat.MEDIUM,
@@ -487,6 +522,7 @@ private fun NoteEditorScreen(
     var hasChanges by remember(note?.id) { mutableStateOf(false) }
     var saveState by remember(note?.id) { mutableStateOf(EditorSaveState.CLEAN) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var showEditorMenu by remember { mutableStateOf(false) }
     val bodyFocusRequester = remember(note?.id) { FocusRequester() }
     val bodyInteractionSource = remember(note?.id) { MutableInteractionSource() }
     val bodyFocused by bodyInteractionSource.collectIsFocusedAsState()
@@ -573,17 +609,43 @@ private fun NoteEditorScreen(
                     }
                 },
                 actions = {
-                    AnimatedVisibility(visible = savedNote != null) {
-                        IconButton(onClick = { showDeleteConfirmation = true }) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Удалить",
-                                tint = MaterialTheme.colorScheme.error,
-                            )
+                    if (savedNote != null) {
+                        Box {
+                            IconButton(onClick = { showEditorMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Ещё")
+                            }
+                            DropdownMenu(
+                                expanded = showEditorMenu,
+                                onDismissRequest = { showEditorMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Удалить заметку") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    onClick = {
+                                        showEditorMenu = false
+                                        showDeleteConfirmation = true
+                                    },
+                                )
+                            }
                         }
                     }
-                    IconButton(onClick = ::finishEditing) {
-                        Icon(Icons.Default.Check, contentDescription = "Готово")
+                    ProxySurface(
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .size(44.dp)
+                            .animatedClick(onClick = ::finishEditing, pressedScale = 0.90f),
+                        role = ProxySurfaceRole.BUTTON,
+                        strong = true,
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Check, contentDescription = "Готово")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -660,20 +722,33 @@ private fun NoteEditorScreen(
             )
             Spacer(Modifier.height(12.dp))
             val glowColor = MaterialTheme.colorScheme.primary
-            ProxySurface(
+            val editorCornerDp = LocalProxyShape.current.resolvedInputCornerDp
+            val editorShape = RoundedCornerShape(editorCornerDp.dp)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .clip(editorShape)
+                    .background(
+                        MaterialTheme.colorScheme.surface.copy(
+                            alpha = if (bodyFocused) 0.075f else 0.025f,
+                        ),
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(
+                            alpha = 0.10f + focusGlow * 0.24f,
+                        ),
+                        shape = editorShape,
+                    )
                     .drawBehind {
                         if (focusGlow > 0f) {
                             drawRoundRect(
-                                color = glowColor.copy(alpha = focusGlow * 0.15f),
-                                cornerRadius = CornerRadius(32.dp.toPx()),
+                                color = glowColor.copy(alpha = focusGlow * 0.055f),
+                                cornerRadius = CornerRadius(editorCornerDp.dp.toPx()),
                             )
                         }
                     },
-                shape = RoundedCornerShape(30.dp),
-                strong = true,
             ) {
                 BasicTextField(
                     value = richText.value,
@@ -744,7 +819,11 @@ private fun FormattingToolbar(
     modifier: Modifier = Modifier,
     onFormatChanged: () -> Unit,
 ) {
-    ProxySurface(modifier = modifier.fillMaxWidth(), strong = true) {
+    ProxySurface(
+        modifier = modifier.fillMaxWidth(),
+        role = ProxySurfaceRole.OVERLAY,
+        strong = true,
+    ) {
         Column {
             AnimatedVisibility(
                 visible = richText.hasSelection,
@@ -995,86 +1074,504 @@ private fun SettingsSheet(
     onThemeSelected: (AppTheme) -> Unit,
     inputMotion: InputMotion,
     onInputMotionSelected: (InputMotion) -> Unit,
+    interfaceShape: InterfaceShape,
+    onInterfaceShapeChanged: (InterfaceShape) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val style = LocalProxyVisualStyle.current
+    val sheetCorner = (interfaceShape.globalCornerDp + 8).coerceAtMost(32).dp
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+        containerColor = Color.Transparent,
         scrimColor = style.scrim,
+        dragHandle = null,
     ) {
-        Column(
+        ProxySurface(
             modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(
+                topStart = sheetCorner,
+                topEnd = sheetCorner,
+            ),
+            role = ProxySurfaceRole.OVERLAY,
+            strong = true,
         ) {
-            Text("Настройки", style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "Материал интерфейса",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(18.dp))
-            ThemeOption(
-                theme = AppTheme.LIQUID_GLASS,
-                title = "Liquid Glass",
-                description = "Преломлённый свет, прозрачность и живая глубина",
-                isSelected = selectedTheme == AppTheme.LIQUID_GLASS,
-                onClick = { onThemeSelected(AppTheme.LIQUID_GLASS) },
-            )
-            Spacer(Modifier.height(10.dp))
-            ThemeOption(
-                theme = AppTheme.ROYAL_GRAPHITE,
-                title = "Royal Graphite",
-                description = "Холодный уголь, слоистый графит и мокрый блеск",
-                isSelected = selectedTheme == AppTheme.ROYAL_GRAPHITE,
-                onClick = { onThemeSelected(AppTheme.ROYAL_GRAPHITE) },
-            )
-            Spacer(Modifier.height(22.dp))
-            Text("Плавность ввода", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Настраивает движение фокуса и ритм автосохранения",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 14.dp, bottom = 24.dp),
             ) {
-                MotionOption(
-                    label = "Прямо",
-                    selected = inputMotion == InputMotion.DIRECT,
-                    onClick = { onInputMotionSelected(InputMotion.DIRECT) },
-                    modifier = Modifier.weight(1f),
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .width(42.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f)),
                 )
-                MotionOption(
-                    label = "Мягко",
-                    selected = inputMotion == InputMotion.GENTLE,
-                    onClick = { onInputMotionSelected(InputMotion.GENTLE) },
-                    modifier = Modifier.weight(1f),
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Настройки", style = MaterialTheme.typography.headlineMedium)
+                        Text(
+                            text = "Материал и пластика интерфейса",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(
+                        onClick = { onInterfaceShapeChanged(InterfaceShape()) },
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Сбросить форму")
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    CompactThemeOption(
+                        theme = AppTheme.LIQUID_GLASS,
+                        title = "Liquid Glass",
+                        selected = selectedTheme == AppTheme.LIQUID_GLASS,
+                        onClick = { onThemeSelected(AppTheme.LIQUID_GLASS) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    CompactThemeOption(
+                        theme = AppTheme.ROYAL_GRAPHITE,
+                        title = "Royal Graphite",
+                        selected = selectedTheme == AppTheme.ROYAL_GRAPHITE,
+                        onClick = { onThemeSelected(AppTheme.ROYAL_GRAPHITE) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(22.dp))
+                Text("Форма интерфейса", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Настройте характер углов и сразу увидите результат",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                MotionOption(
-                    label = "Текуче",
-                    selected = inputMotion == InputMotion.FLOWING,
-                    onClick = { onInputMotionSelected(InputMotion.FLOWING) },
-                    modifier = Modifier.weight(1f),
+                Spacer(Modifier.height(12.dp))
+                ShapeLivePreview(interfaceShape)
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Характер углов", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = "${interfaceShape.globalCornerDp} dp",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Slider(
+                    value = interfaceShape.globalCornerDp.toFloat(),
+                    onValueChange = {
+                        onInterfaceShapeChanged(interfaceShape.withGlobalCorner(it.roundToInt()))
+                    },
+                    valueRange = MIN_INTERFACE_CORNER_DP.toFloat()..MAX_INTERFACE_CORNER_DP.toFloat(),
+                    steps = MAX_INTERFACE_CORNER_DP - MIN_INTERFACE_CORNER_DP - 1,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(Modifier.fillMaxWidth()) {
+                    Text(
+                        "Угловато",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "Мягко",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ShapePreset(
+                        label = "Угловато",
+                        value = 8,
+                        selected = interfaceShape.globalCornerDp == 8,
+                        onClick = {
+                            onInterfaceShapeChanged(interfaceShape.withGlobalCorner(8))
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ShapePreset(
+                        label = "Баланс",
+                        value = 14,
+                        selected = interfaceShape.globalCornerDp == 14,
+                        onClick = {
+                            onInterfaceShapeChanged(interfaceShape.withGlobalCorner(14))
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ShapePreset(
+                        label = "Мягко",
+                        value = 24,
+                        selected = interfaceShape.globalCornerDp == 24,
+                        onClick = {
+                            onInterfaceShapeChanged(interfaceShape.withGlobalCorner(24))
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                ProxySurface(
+                    modifier = Modifier.fillMaxWidth(),
+                    role = ProxySurfaceRole.CARD,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Связать все элементы", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = if (interfaceShape.linked) {
+                                    "Один характер углов для всего"
+                                } else {
+                                    "Точная настройка каждого элемента"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = interfaceShape.linked,
+                            onCheckedChange = {
+                                onInterfaceShapeChanged(interfaceShape.withLinked(it))
+                            },
+                        )
+                    }
+                }
+                AnimatedVisibility(
+                    visible = !interfaceShape.linked,
+                    enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { -it / 4 },
+                    exit = fadeOut(tween(160)) + slideOutVertically(tween(200)) { -it / 4 },
+                ) {
+                    Column {
+                        Spacer(Modifier.height(10.dp))
+                        ProxySurface(
+                            modifier = Modifier.fillMaxWidth(),
+                            role = ProxySurfaceRole.CARD,
+                        ) {
+                            Column {
+                                CornerControlRow(
+                                    label = "Карточки",
+                                    value = interfaceShape.cardCornerDp,
+                                    onValueChange = {
+                                        onInterfaceShapeChanged(interfaceShape.withCardCorner(it))
+                                    },
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
+                                )
+                                CornerControlRow(
+                                    label = "Поля ввода",
+                                    value = interfaceShape.inputCornerDp,
+                                    onValueChange = {
+                                        onInterfaceShapeChanged(interfaceShape.withInputCorner(it))
+                                    },
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
+                                )
+                                CornerControlRow(
+                                    label = "Кнопки",
+                                    value = interfaceShape.buttonCornerDp,
+                                    onValueChange = {
+                                        onInterfaceShapeChanged(interfaceShape.withButtonCorner(it))
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(22.dp))
+                Text("Плавность ввода", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Движение фокуса и ритм автосохранения",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    MotionOption(
+                        label = "Прямо",
+                        selected = inputMotion == InputMotion.DIRECT,
+                        onClick = { onInputMotionSelected(InputMotion.DIRECT) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    MotionOption(
+                        label = "Мягко",
+                        selected = inputMotion == InputMotion.GENTLE,
+                        onClick = { onInputMotionSelected(InputMotion.GENTLE) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    MotionOption(
+                        label = "Текуче",
+                        selected = inputMotion == InputMotion.FLOWING,
+                        onClick = { onInputMotionSelected(InputMotion.FLOWING) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(20.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "ProxyScroll · 0.5.0-alpha06",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.height(20.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f))
-            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun CompactThemeOption(
+    theme: AppTheme,
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ProxySurface(
+        modifier = modifier
+            .height(68.dp)
+            .animatedClick(onClick = onClick, pressedScale = 0.96f),
+        role = ProxySurfaceRole.CARD,
+        strong = selected,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            ThemeSwatch(theme, modifier = Modifier.size(38.dp))
             Text(
-                text = "ProxyScroll 0.4.0-alpha05",
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 2,
+                modifier = Modifier.weight(1f),
+            )
+            if (selected) {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = "Выбрано",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShapeLivePreview(shapeSettings: InterfaceShape) {
+    val cardCorner by animateDpAsState(
+        targetValue = shapeSettings.resolvedCardCornerDp.dp,
+        animationSpec = tween(220),
+        label = "preview-card-corner",
+    )
+    val inputCorner by animateDpAsState(
+        targetValue = shapeSettings.resolvedInputCornerDp.dp,
+        animationSpec = tween(220),
+        label = "preview-input-corner",
+    )
+    val buttonCorner by animateDpAsState(
+        targetValue = shapeSettings.resolvedButtonCornerDp.dp,
+        animationSpec = tween(220),
+        label = "preview-button-corner",
+    )
+    ProxySurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(250.dp),
+        role = ProxySurfaceRole.OVERLAY,
+        strong = true,
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                text = "LIVE PREVIEW",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(10.dp))
+            ProxySurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(inputCorner),
+                role = ProxySurfaceRole.INPUT,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "Найти заметку",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ProxySurface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(126.dp),
+                    shape = RoundedCornerShape(cardCorner),
+                    role = ProxySurfaceRole.CARD,
+                ) {
+                    Column(Modifier.padding(13.dp)) {
+                        Text("Новая заметка", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            text = "Форма и свет меняются мгновенно.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            text = "Сейчас",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                ProxySurface(
+                    modifier = Modifier.size(56.dp),
+                    shape = RoundedCornerShape(buttonCorner),
+                    role = ProxySurfaceRole.BUTTON,
+                    strong = true,
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShapePreset(
+    label: String,
+    value: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ProxySurface(
+        modifier = modifier
+            .height(56.dp)
+            .animatedClick(onClick = onClick, pressedScale = 0.95f),
+        shape = RoundedCornerShape(value.dp),
+        role = ProxySurfaceRole.BUTTON,
+        strong = selected,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(label, style = MaterialTheme.typography.labelMedium)
+            Text(
+                text = value.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun CornerControlRow(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .padding(horizontal = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(
+            text = "$value dp",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f))
+                .animatedClick(
+                    onClick = { onValueChange(value - 2) },
+                    pressedScale = 0.88f,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Remove, contentDescription = "Уменьшить", modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(6.dp))
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f))
+                .animatedClick(
+                    onClick = { onValueChange(value + 2) },
+                    pressedScale = 0.88f,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Увеличить", modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -1090,7 +1587,7 @@ private fun MotionOption(
         modifier = modifier
             .height(48.dp)
             .animatedClick(onClick = onClick, pressedScale = 0.95f),
-        shape = RoundedCornerShape(18.dp),
+        role = ProxySurfaceRole.BUTTON,
         strong = selected,
     ) {
         Row(
@@ -1163,10 +1660,13 @@ private fun ThemeOption(
 }
 
 @Composable
-private fun ThemeSwatch(theme: AppTheme) {
+private fun ThemeSwatch(
+    theme: AppTheme,
+    modifier: Modifier = Modifier,
+) {
     val shape = RoundedCornerShape(18.dp)
     Canvas(
-        modifier = Modifier
+        modifier = modifier
             .size(66.dp)
             .clip(shape)
             .border(1.dp, Color.White.copy(alpha = 0.34f), shape),
