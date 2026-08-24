@@ -13,6 +13,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -95,6 +96,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -134,6 +136,7 @@ import com.proxyscroll.app.domain.MIN_STAIN_INTENSITY
 import com.proxyscroll.app.domain.MAX_INTERFACE_CORNER_DP
 import com.proxyscroll.app.domain.MIN_INTERFACE_CORNER_DP
 import com.proxyscroll.app.domain.Note
+import com.proxyscroll.app.domain.NoteColorFlag
 import com.proxyscroll.app.domain.NoteSpan
 import com.proxyscroll.app.domain.StainMotion
 import com.proxyscroll.app.domain.StainPalette
@@ -182,8 +185,8 @@ fun ProxyScrollApp(
         label = "settings-fog-progress",
     )
     val settingsFogRadius by animateDpAsState(
-        targetValue = if (showSettings && !editorOpen) 12.dp else 0.dp,
-        animationSpec = tween(520, easing = FastOutSlowInEasing),
+        targetValue = if (showSettings && !editorOpen) 4.dp else 0.dp,
+        animationSpec = tween(360, easing = FastOutSlowInEasing),
         label = "settings-fog-radius",
     )
     val settingsBackgroundScale by animateFloatAsState(
@@ -216,11 +219,19 @@ fun ProxyScrollApp(
                     targetState = editorOpen,
                     transitionSpec = {
                         if (targetState) {
-                            (fadeIn(tween(300)) + slideInHorizontally(tween(380)) { it / 8 }) togetherWith
-                                (fadeOut(tween(220)) + slideOutHorizontally(tween(300)) { -it / 12 })
+                            (fadeIn(tween(300)) +
+                                slideInHorizontally(tween(380)) { it / 8 } +
+                                scaleIn(tween(380), initialScale = 0.955f)) togetherWith
+                                (fadeOut(tween(220)) +
+                                    slideOutHorizontally(tween(300)) { -it / 12 } +
+                                    scaleOut(tween(260), targetScale = 0.975f))
                         } else {
-                            (fadeIn(tween(300)) + slideInHorizontally(tween(360)) { -it / 10 }) togetherWith
-                                (fadeOut(tween(200)) + slideOutHorizontally(tween(300)) { it / 9 })
+                            (fadeIn(tween(300)) +
+                                slideInHorizontally(tween(360)) { -it / 10 } +
+                                scaleIn(tween(380), initialScale = 0.965f)) togetherWith
+                                (fadeOut(tween(200)) +
+                                    slideOutHorizontally(tween(300)) { it / 9 } +
+                                    scaleOut(tween(250), targetScale = 0.98f))
                         }
                     },
                     label = "notes-editor-transition",
@@ -275,8 +286,12 @@ fun ProxyScrollApp(
             AnimatedVisibility(
                 visible = showSettings && !editorOpen,
                 modifier = Modifier.fillMaxSize(),
-                enter = fadeIn(tween(220)) + slideInVertically(tween(420)) { it / 8 },
-                exit = fadeOut(tween(180)) + slideOutVertically(tween(300)) { it / 10 },
+                enter = fadeIn(tween(220)) +
+                    slideInVertically(tween(420)) { it / 8 } +
+                    scaleIn(tween(420), initialScale = 0.955f),
+                exit = fadeOut(tween(180)) +
+                    slideOutVertically(tween(300)) { it / 10 } +
+                    scaleOut(tween(260), targetScale = 0.98f),
             ) {
                 SettingsSheet(
                     selectedTheme = selectedTheme,
@@ -365,6 +380,7 @@ private fun NotesScreen(
 ) {
     val searchInteractionSource = remember { MutableInteractionSource() }
     val searchFocused by searchInteractionSource.collectIsFocusedAsState()
+    val noteGroups = remember(state.notes) { groupNotesByFlag(state.notes) }
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -489,38 +505,111 @@ private fun NotesScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    itemsIndexed(
-                        items = state.notes,
-                        key = { _, note -> note.id },
-                    ) { index, note ->
-                        var visible by remember(note.id) { mutableStateOf(false) }
-                        LaunchedEffect(note.id) {
-                            delay((index.coerceAtMost(8) * 48L) + 30L)
-                            visible = true
-                        }
-                        AnimatedVisibility(
-                            visible = visible,
-                            modifier = Modifier.animateItem(),
-                            enter = fadeIn(tween(420)) +
-                                slideInVertically(tween(480, easing = FastOutSlowInEasing)) {
-                                    it / 3
-                                } +
-                                scaleIn(tween(460), initialScale = 0.975f),
-                            exit = fadeOut(tween(220)) +
-                                slideOutVertically(tween(260)) { -it / 5 } +
-                                scaleOut(tween(220), targetScale = 0.98f),
-                        ) {
-                            NoteCard(
-                                note = note,
-                                onClick = { onEdit(note) },
-                                onTogglePinned = { onTogglePinned(note) },
+                    var appearanceIndex = 0
+                    noteGroups.forEach { group ->
+                        item(key = "flag-group-${group.flag.storageKey}") {
+                            NoteGroupHeader(
+                                group = group,
+                                singleGroup = noteGroups.size == 1,
+                                modifier = Modifier.animateItem(),
                             )
                         }
+                        itemsIndexed(
+                            items = group.notes,
+                            key = { _, note -> note.id },
+                        ) { groupIndex, note ->
+                            val itemAppearanceIndex = appearanceIndex + groupIndex
+                            var visible by remember(note.id) { mutableStateOf(false) }
+                            LaunchedEffect(note.id) {
+                                delay((itemAppearanceIndex.coerceAtMost(8) * 48L) + 30L)
+                                visible = true
+                            }
+                            AnimatedVisibility(
+                                visible = visible,
+                                modifier = Modifier.animateItem(),
+                                enter = fadeIn(tween(420)) +
+                                    slideInVertically(tween(480, easing = FastOutSlowInEasing)) {
+                                        it / 3
+                                    } +
+                                    scaleIn(tween(460), initialScale = 0.965f),
+                                exit = fadeOut(tween(220)) +
+                                    slideOutVertically(tween(260)) { -it / 5 } +
+                                    scaleOut(tween(220), targetScale = 0.98f),
+                            ) {
+                                NoteCard(
+                                    note = note,
+                                    onClick = { onEdit(note) },
+                                    onTogglePinned = { onTogglePinned(note) },
+                                )
+                            }
+                        }
+                        appearanceIndex += group.notes.size
                     }
                     item { Spacer(Modifier.height(96.dp)) }
                 }
             }
         }
+    }
+}
+
+private data class NoteFlagGroup(
+    val flag: NoteColorFlag,
+    val notes: List<Note>,
+)
+
+private fun groupNotesByFlag(notes: List<Note>): List<NoteFlagGroup> {
+    val groupOrder = NoteColorFlag.entries.filterNot { it == NoteColorFlag.NONE } +
+        NoteColorFlag.NONE
+    return groupOrder.mapNotNull { flag ->
+        notes.filter { it.colorFlag == flag }
+            .takeIf { it.isNotEmpty() }
+            ?.let { NoteFlagGroup(flag = flag, notes = it) }
+    }
+}
+
+private fun noteFlagColor(flag: NoteColorFlag): Color = when (flag) {
+    NoteColorFlag.NONE -> Color(0xFF8B93A7)
+    NoteColorFlag.SKY -> Color(0xFF65B9FF)
+    NoteColorFlag.VIOLET -> Color(0xFF9B80FF)
+    NoteColorFlag.CORAL -> Color(0xFFFF8E8A)
+    NoteColorFlag.MINT -> Color(0xFF59D4B1)
+    NoteColorFlag.AMBER -> Color(0xFFF3BC62)
+}
+
+@Composable
+private fun NoteGroupHeader(
+    group: NoteFlagGroup,
+    singleGroup: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 8.dp, end = 4.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(if (group.flag == NoteColorFlag.NONE) 7.dp else 9.dp)
+                .clip(CircleShape)
+                .background(noteFlagColor(group.flag)),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = if (singleGroup && group.flag == NoteColorFlag.NONE) {
+                "Все заметки"
+            } else {
+                group.flag.displayName
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = group.notes.size.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            color = noteFlagColor(group.flag).copy(alpha = 0.92f),
+        )
     }
 }
 
@@ -575,7 +664,25 @@ private fun NoteCard(
         strong = note.isPinned,
         role = ProxySurfaceRole.CARD,
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
+        Box {
+            if (note.colorFlag != NoteColorFlag.NONE) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .width(4.dp)
+                        .height(54.dp)
+                        .clip(RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    noteFlagColor(note.colorFlag).copy(alpha = 0.95f),
+                                    noteFlagColor(note.colorFlag).copy(alpha = 0.44f),
+                                ),
+                            ),
+                        ),
+                )
+            }
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -610,14 +717,138 @@ private fun NoteCard(
                 )
             }
             Spacer(Modifier.height(9.dp))
-            Text(
-                text = DateFormat.getDateTimeInstance(
-                    DateFormat.MEDIUM,
-                    DateFormat.SHORT,
-                ).format(Date(note.updatedAt)),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = DateFormat.getDateTimeInstance(
+                            DateFormat.MEDIUM,
+                            DateFormat.SHORT,
+                        ).format(Date(note.updatedAt)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (note.colorFlag != NoteColorFlag.NONE) {
+                        Text(
+                            text = note.colorFlag.displayName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = noteFlagColor(note.colorFlag),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteFlagPicker(
+    selected: NoteColorFlag,
+    onSelected: (NoteColorFlag) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ProxyInsetSurface(
+        modifier = modifier.height(54.dp),
+        role = ProxySurfaceRole.INPUT,
+        selected = selected != NoteColorFlag.NONE,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.width(76.dp)) {
+                Text("Флаг", style = MaterialTheme.typography.labelSmall)
+                AnimatedContent(
+                    targetState = selected,
+                    transitionSpec = {
+                        (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 3 }) togetherWith
+                            (fadeOut(tween(120)) + slideOutVertically(tween(160)) { -it / 3 })
+                    },
+                    label = "note-flag-label",
+                ) { flag ->
+                    Text(
+                        text = flag.displayName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (flag == NoteColorFlag.NONE) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            noteFlagColor(flag)
+                        },
+                        maxLines = 1,
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                NoteColorFlag.entries.forEach { flag ->
+                    NoteFlagSwatch(
+                        flag = flag,
+                        selected = flag == selected,
+                        onClick = { onSelected(flag) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteFlagSwatch(
+    flag: NoteColorFlag,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val outlineColor = MaterialTheme.colorScheme.outline
+    val swatchSize by animateDpAsState(
+        targetValue = if (selected) 26.dp else 20.dp,
+        animationSpec = spring(dampingRatio = 0.66f, stiffness = 440f),
+        label = "flag-swatch-${flag.storageKey}",
+    )
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .animatedClick(onClick = onClick, pressedScale = 0.86f),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(swatchSize)) {
+            if (selected) {
+                drawCircle(
+                    color = noteFlagColor(flag).copy(alpha = 0.18f),
+                    radius = size.minDimension * 0.54f,
+                )
+            }
+            if (flag == NoteColorFlag.NONE) {
+                drawCircle(
+                    color = outlineColor.copy(alpha = 0.68f),
+                    radius = size.minDimension * 0.38f,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = if (selected) 2.2.dp.toPx() else 1.3.dp.toPx(),
+                    ),
+                )
+                drawLine(
+                    color = outlineColor.copy(alpha = 0.72f),
+                    start = Offset(size.width * 0.30f, size.height * 0.70f),
+                    end = Offset(size.width * 0.70f, size.height * 0.30f),
+                    strokeWidth = 1.4.dp.toPx(),
+                )
+            } else {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.58f),
+                            noteFlagColor(flag),
+                            noteFlagColor(flag).copy(alpha = 0.72f),
+                        ),
+                        center = Offset(size.width * 0.34f, size.height * 0.28f),
+                        radius = size.minDimension * 0.72f,
+                    ),
+                    radius = size.minDimension * 0.38f,
+                )
+            }
         }
     }
 }
@@ -629,13 +860,16 @@ private enum class EditorSaveState { CLEAN, EDITING, SAVED }
 private fun NoteEditorScreen(
     note: Note?,
     inputMotion: InputMotion,
-    onSave: (Note?, String, String, List<NoteSpan>) -> Note?,
+    onSave: (Note?, String, String, List<NoteSpan>, NoteColorFlag) -> Note?,
     onDelete: (Note) -> Unit,
     onClose: () -> Unit,
     onTypingQuietChanged: (Boolean) -> Unit,
 ) {
     var savedNote by remember(note?.id) { mutableStateOf(note) }
     var title by remember(note?.id) { mutableStateOf(note?.title.orEmpty()) }
+    var colorFlag by remember(note?.id) {
+        mutableStateOf(note?.colorFlag ?: NoteColorFlag.NONE)
+    }
     val richText = remember(note?.id) {
         RichTextState(note?.body.orEmpty(), note?.spans.orEmpty())
     }
@@ -646,6 +880,9 @@ private fun NoteEditorScreen(
     val bodyFocusRequester = remember(note?.id) { FocusRequester() }
     val bodyInteractionSource = remember(note?.id) { MutableInteractionSource() }
     var bodyTextLayout by remember(note?.id) { mutableStateOf<TextLayoutResult?>(null) }
+    var typingPulseIndex by remember(note?.id) { mutableIntStateOf(-1) }
+    var typingPulseRevision by remember(note?.id) { mutableIntStateOf(0) }
+    val typingReveal = remember(note?.id) { Animatable(1f) }
     val bodyFocused by bodyInteractionSource.collectIsFocusedAsState()
     val focusGlow by animateFloatAsState(
         targetValue = if (bodyFocused) 1f else 0f,
@@ -671,6 +908,7 @@ private fun NoteEditorScreen(
             title,
             richText.value.text,
             richText.toSpans(),
+            colorFlag,
         )
         if (result != null) savedNote = result
         hasChanges = false
@@ -703,7 +941,7 @@ private fun NoteEditorScreen(
         bodyFocusRequester.requestFocus()
     }
 
-    LaunchedEffect(title, richText.revision) {
+    LaunchedEffect(title, richText.revision, colorFlag) {
         if (!hasChanges) return@LaunchedEffect
         delay(inputMotion.autosaveDelayMillis)
         saveNow()
@@ -714,6 +952,18 @@ private fun NoteEditorScreen(
         onTypingQuietChanged(true)
         delay(600)
         onTypingQuietChanged(false)
+    }
+
+    LaunchedEffect(typingPulseRevision) {
+        if (typingPulseRevision == 0) return@LaunchedEffect
+        typingReveal.snapTo(0f)
+        typingReveal.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = inputMotion.pulseMillis.coerceIn(140, 300),
+                easing = FastOutSlowInEasing,
+            ),
+        )
     }
 
     Scaffold(
@@ -859,13 +1109,33 @@ private fun NoteEditorScreen(
                     modifier = Modifier.padding(start = 6.dp, bottom = 10.dp),
                 )
             }
+            NoteFlagPicker(
+                selected = colorFlag,
+                onSelected = { selectedFlag ->
+                    if (colorFlag != selectedFlag) {
+                        colorFlag = selectedFlag
+                        hasChanges = true
+                        saveState = EditorSaveState.EDITING
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f),
             )
             Spacer(Modifier.height(12.dp))
             val glowColor = MaterialTheme.colorScheme.primary
             val editorCornerDp = LocalProxyShape.current.resolvedInputCornerDp
-            val editorShape = RoundedCornerShape(editorCornerDp.dp)
+            val editorMorphCorner by animateDpAsState(
+                targetValue = (editorCornerDp + if (bodyFocused) 6 else 0).dp,
+                animationSpec = spring(
+                    dampingRatio = 0.74f,
+                    stiffness = 360f,
+                ),
+                label = "editor-liquid-corner",
+            )
+            val editorShape = RoundedCornerShape(editorMorphCorner)
             ProxySurface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -875,23 +1145,34 @@ private fun NoteEditorScreen(
                 strong = bodyFocused,
                 active = bodyFocused,
                 deformContent = false,
+                interactive = false,
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                    .drawBehind {
-                        if (focusGlow > 0f) {
-                            drawRoundRect(
-                                color = glowColor.copy(alpha = focusGlow * 0.055f),
-                                cornerRadius = CornerRadius(editorCornerDp.dp.toPx()),
-                            )
-                        }
-                    },
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.18f))
+                        .drawBehind {
+                            if (focusGlow > 0f) {
+                                drawRoundRect(
+                                    color = glowColor.copy(alpha = focusGlow * 0.055f),
+                                    cornerRadius = CornerRadius(editorMorphCorner.toPx()),
+                                )
+                            }
+                        },
                 ) {
                     BasicTextField(
                     value = richText.value,
-                    onValueChange = {
-                        richText.onValueChange(it)
+                    onValueChange = { nextValue ->
+                        val previousLength = richText.value.text.length
+                        if (
+                            nextValue.text.length > previousLength &&
+                            nextValue.selection.collapsed
+                        ) {
+                            typingPulseIndex = (nextValue.selection.end - 1)
+                                .coerceAtLeast(0)
+                            typingPulseRevision++
+                        }
+                        richText.onValueChange(nextValue)
                         hasChanges = true
                         saveState = EditorSaveState.EDITING
                     },
@@ -922,6 +1203,52 @@ private fun NoteEditorScreen(
                         }
                     },
                     )
+                    Canvas(Modifier.fillMaxSize()) {
+                        val layoutResult = bodyTextLayout ?: return@Canvas
+                        val index = typingPulseIndex
+                        if (index !in richText.value.text.indices) return@Canvas
+                        val glyphBox = layoutResult.getBoundingBox(index)
+                        val paddingX = 20.dp.toPx()
+                        val paddingY = 18.dp.toPx()
+                        val decay = 1f - typingReveal.value
+                        if (decay <= 0.001f) return@Canvas
+                        val center = Offset(
+                            x = paddingX + glyphBox.center.x,
+                            y = paddingY + glyphBox.center.y,
+                        )
+                        val pulseColor = if (colorFlag == NoteColorFlag.NONE) {
+                            glowColor
+                        } else {
+                            noteFlagColor(colorFlag)
+                        }
+                        val radius = maxOf(glyphBox.width, glyphBox.height) *
+                            (1.20f + decay * 0.90f)
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = decay * 0.22f),
+                                    pulseColor.copy(alpha = decay * 0.16f),
+                                    Color.Transparent,
+                                ),
+                                center = center,
+                                radius = radius,
+                            ),
+                            center = center,
+                            radius = radius,
+                        )
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    pulseColor.copy(alpha = decay * 0.08f),
+                                    Color.Transparent,
+                                ),
+                                center = center - Offset(radius * 0.34f, 0f),
+                                radius = radius * 0.84f,
+                            ),
+                            center = center - Offset(radius * 0.34f, 0f),
+                            radius = radius * 0.84f,
+                        )
+                    }
                     val layoutResult = bodyTextLayout
                     if (
                         richText.hasSelection &&
@@ -1712,7 +2039,7 @@ private fun SettingsSheet(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "ProxyScroll · 0.5.8-alpha14",
+                    text = "ProxyScroll · 0.5.9-alpha15",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

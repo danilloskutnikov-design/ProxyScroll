@@ -3,6 +3,7 @@ package com.proxyscroll.app.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.proxyscroll.app.domain.Note
+import com.proxyscroll.app.domain.NoteColorFlag
 import com.proxyscroll.app.domain.NoteSpan
 import com.proxyscroll.app.domain.NotesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +40,7 @@ class NotesViewModel(
         title: String,
         body: String,
         spans: List<NoteSpan>,
+        colorFlag: NoteColorFlag,
     ): Note? {
         if (existing == null && title.isBlank() && body.isBlank()) return null
         val now = System.currentTimeMillis()
@@ -49,6 +51,7 @@ class NotesViewModel(
             body = body,
             spans = spans,
             isPinned = existing?.isPinned ?: false,
+            colorFlag = colorFlag,
             createdAt = existing?.createdAt ?: now,
             updatedAt = now,
         )

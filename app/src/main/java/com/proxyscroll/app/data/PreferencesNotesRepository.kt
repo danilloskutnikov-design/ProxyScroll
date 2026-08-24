@@ -2,6 +2,7 @@ package com.proxyscroll.app.data
 
 import android.content.SharedPreferences
 import com.proxyscroll.app.domain.Note
+import com.proxyscroll.app.domain.NoteColorFlag
 import com.proxyscroll.app.domain.NoteSpan
 import com.proxyscroll.app.domain.NotesRepository
 import org.json.JSONArray
@@ -54,6 +55,7 @@ class PreferencesNotesRepository(
             }
         })
         put("isPinned", isPinned)
+        put("colorFlag", colorFlag.storageKey)
         put("createdAt", createdAt)
         put("updatedAt", updatedAt)
     }
@@ -86,6 +88,7 @@ class PreferencesNotesRepository(
             body = body,
             spans = spans,
             isPinned = optBoolean("isPinned"),
+            colorFlag = NoteColorFlag.fromStorage(optString("colorFlag", null)),
             createdAt = optLong("createdAt"),
             updatedAt = optLong("updatedAt"),
         )

@@ -6,9 +6,29 @@ data class Note(
     val body: String,
     val spans: List<NoteSpan> = emptyList(),
     val isPinned: Boolean,
+    val colorFlag: NoteColorFlag = NoteColorFlag.NONE,
     val createdAt: Long,
     val updatedAt: Long,
 )
+
+enum class NoteColorFlag(
+    val storageKey: String,
+    val displayName: String,
+) {
+    NONE("none", "Без флага"),
+    SKY("sky", "Небо"),
+    VIOLET("violet", "Ирис"),
+    CORAL("coral", "Коралл"),
+    MINT("mint", "Мята"),
+    AMBER("amber", "Янтарь"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): NoteColorFlag {
+            return entries.firstOrNull { it.storageKey == value } ?: NONE
+        }
+    }
+}
 
 data class NoteSpan(
     val start: Int,
