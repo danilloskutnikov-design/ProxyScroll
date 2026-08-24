@@ -25,6 +25,8 @@ The UI depends on the domain repository contract rather than its SharedPreferenc
 
 GitHub Actions builds the debug APK on every push to `main`. Open the latest **Build Alpha APK** workflow run, download the `ProxyScroll-0.3.0-alpha03-debug` artifact, unzip it, and install the APK on Android 8.0 or newer.
 
+Alpha APKs use a repository-local debug-only signing key so later Alpha builds can update in place without erasing local notes. This key must never be used for a production release.
+
 For a local build with JDK 17, Android SDK 35, and Gradle 8.9:
 
     gradle :app:assembleDebug

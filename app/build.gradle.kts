@@ -16,7 +16,19 @@ android {
         versionName = "0.3.0-alpha03"
     }
 
+    signingConfigs {
+        create("alphaDebug") {
+            storeFile = file("proxyscroll-alpha.keystore")
+            storePassword = "android"
+            keyAlias = "proxyscrollalpha"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("alphaDebug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
