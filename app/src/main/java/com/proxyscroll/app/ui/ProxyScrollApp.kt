@@ -210,6 +210,7 @@ fun ProxyScrollApp(
         selectedTheme = selectedTheme,
         interfaceShape = interfaceShape,
         stainSettings = stainSettings,
+        motionQuiet = typingQuiet || scrollingQuiet,
     ) {
         Box(Modifier.fillMaxSize()) {
             Box(
@@ -224,7 +225,6 @@ fun ProxyScrollApp(
             ) {
                 ProxyThemeBackground(
                     selectedTheme = selectedTheme,
-                    motionQuiet = typingQuiet || scrollingQuiet,
                     modifier = Modifier.fillMaxSize(),
                 )
                 AnimatedContent(
@@ -1791,7 +1791,11 @@ private fun SettingsSheet(
                     .fillMaxSize()
                     .background(
                         MaterialTheme.colorScheme.surface.copy(
-                            alpha = if (selectedTheme == AppTheme.LIQUID_GLASS) 0.70f else 0.86f,
+                            alpha = when (selectedTheme) {
+                                AppTheme.LIQUID_GLASS -> 0.70f
+                                AppTheme.ROYAL_GRAPHITE -> 0.86f
+                                AppTheme.OLD_SCROLL -> 0.88f
+                            },
                         ),
                     )
                     .navigationBarsPadding()
@@ -1849,14 +1853,32 @@ private fun SettingsSheet(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                Spacer(Modifier.height(8.dp))
+                CompactThemeOption(
+                    theme = AppTheme.OLD_SCROLL,
+                    title = "OldScroll",
+                    selected = selectedTheme == AppTheme.OLD_SCROLL,
+                    onClick = { onThemeSelected(AppTheme.OLD_SCROLL) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Spacer(Modifier.height(22.dp))
-                Text("Цвет внутри стекла", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    text = if (selectedTheme == AppTheme.OLD_SCROLL) {
+                        "Характер бумаги"
+                    } else {
+                        "Цвет внутри материала"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = if (selectedTheme == AppTheme.LIQUID_GLASS) {
-                        "Единое световое поле проходит через все поверхности"
-                    } else {
-                        "Graphite Oil — холодные цветные включения под мокрым камнем"
+                    text = when (selectedTheme) {
+                        AppTheme.LIQUID_GLASS ->
+                            "Единое световое поле проходит через все поверхности"
+                        AppTheme.ROYAL_GRAPHITE ->
+                            "Graphite Oil — холодные цветные включения под мокрым камнем"
+                        AppTheme.OLD_SCROLL ->
+                            "Слоновая кость · старые волокна · тёплая пыль и потемневший край"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1878,8 +1900,10 @@ private fun SettingsSheet(
                             )
                         }
                     }
-                } else {
+                } else if (selectedTheme == AppTheme.ROYAL_GRAPHITE) {
                     GraphiteOilBadge()
+                } else {
+                    OldScrollBadge()
                 }
                 Spacer(Modifier.height(14.dp))
                 Row(Modifier.fillMaxWidth()) {
@@ -2236,6 +2260,44 @@ private fun GraphiteOilBadge() {
 }
 
 @Composable
+private fun OldScrollBadge() {
+    ProxyInsetSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(68.dp),
+        role = ProxySurfaceRole.CARD,
+        selected = true,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ThemeSwatch(
+                theme = AppTheme.OLD_SCROLL,
+                modifier = Modifier.size(42.dp),
+            )
+            Column(Modifier.weight(1f)) {
+                Text("Ivory Archive", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "Старая бумага · волокна · пыль",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.Default.CheckCircle,
+                contentDescription = "Активный материал",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun CompactThemeOption(
     theme: AppTheme,
     title: String,
@@ -2561,7 +2623,11 @@ private fun ThemeSwatch(
     theme: AppTheme,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = if (theme == AppTheme.OLD_SCROLL) {
+        RoundedCornerShape(6.dp)
+    } else {
+        RoundedCornerShape(18.dp)
+    }
     val stainSettings = LocalStainSettings.current
     val liquidColors = when (stainSettings.palette) {
         StainPalette.AURORA_OPAL -> listOf(
@@ -2586,7 +2652,8 @@ private fun ThemeSwatch(
             .clip(shape)
             .border(1.dp, Color.White.copy(alpha = 0.34f), shape),
     ) {
-        if (theme == AppTheme.LIQUID_GLASS) {
+        when (theme) {
+            AppTheme.LIQUID_GLASS -> {
             drawRect(
                 brush = Brush.linearGradient(
                     listOf(Color(0xFFF6F8FF), Color(0xFFEAF2F5)),
@@ -2609,7 +2676,8 @@ private fun ThemeSwatch(
                 radius = size.width * 0.42f,
                 center = Offset(size.width * 0.72f, size.height * 0.68f),
             )
-        } else {
+            }
+            AppTheme.ROYAL_GRAPHITE -> {
             drawRect(
                 brush = Brush.linearGradient(
                     listOf(Color(0xFF3E4B51), Color(0xFF11181B), Color(0xFF06090A)),
@@ -2633,6 +2701,39 @@ private fun ThemeSwatch(
                 center = Offset(size.width * 0.28f, size.height * 0.22f),
                 radius = size.width * 0.55f,
             )
+            }
+            AppTheme.OLD_SCROLL -> {
+                drawRect(
+                    brush = Brush.linearGradient(
+                        listOf(Color(0xFFFFF1D1), Color(0xFFE3C995), Color(0xFFCBAA70)),
+                    ),
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color(0xFFFFF7DE).copy(alpha = 0.76f), Color.Transparent),
+                    ),
+                    center = Offset(size.width * 0.28f, size.height * 0.20f),
+                    radius = size.width * 0.62f,
+                )
+                repeat(7) { index ->
+                    val y = size.height * (0.14f + index * 0.115f)
+                    drawLine(
+                        color = Color(0xFF76532F).copy(alpha = 0.12f + (index % 2) * 0.025f),
+                        start = Offset(size.width * 0.08f, y),
+                        end = Offset(size.width * (0.62f + (index % 3) * 0.11f), y + index % 2),
+                        strokeWidth = 0.7f,
+                    )
+                }
+                drawRect(
+                    brush = Brush.linearGradient(
+                        listOf(
+                            Color(0xFF604321).copy(alpha = 0.16f),
+                            Color.Transparent,
+                            Color(0xFF604321).copy(alpha = 0.12f),
+                        ),
+                    ),
+                )
+            }
         }
     }
 }
