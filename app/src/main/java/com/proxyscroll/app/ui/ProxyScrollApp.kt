@@ -164,6 +164,7 @@ import com.proxyscroll.app.ui.editor.MIN_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.RichTextState
 import com.proxyscroll.app.ui.editor.annotatedText
 import com.proxyscroll.app.ui.theme.LocalProxyShape
+import com.proxyscroll.app.ui.theme.LocalProxyVisualStyle
 import com.proxyscroll.app.ui.theme.LocalMaterialMotionProfile
 import com.proxyscroll.app.ui.theme.LocalStainSettings
 import com.proxyscroll.app.ui.theme.ProxyBrandLockup
@@ -194,6 +195,8 @@ fun ProxyScrollApp(
     onInterfaceShapeChanged: (InterfaceShape) -> Unit,
     stainSettings: StainSettings,
     onStainSettingsChanged: (StainSettings) -> Unit,
+    activeGroupFilter: String?,
+    onActiveGroupFilterChanged: (String?) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -272,6 +275,7 @@ fun ProxyScrollApp(
                     if (destination == ProxyDestination.EDITOR) {
                         NoteEditorScreen(
                             note = editorNote,
+                            groups = state.groups,
                             inputMotion = inputMotion,
                             onSave = viewModel::save,
                             onDelete = { deletedNote ->
@@ -315,6 +319,7 @@ fun ProxyScrollApp(
                             onBulkPinned = viewModel::setPinned,
                             onAssignGroup = viewModel::setGroup,
                             onCreateGroup = viewModel::createGroup,
+                            onUpdateGroup = viewModel::updateGroup,
                             onDeleteGroup = viewModel::deleteGroup,
                             onMoveToTrash = { notes ->
                                 viewModel.moveToTrash(notes)
@@ -336,6 +341,8 @@ fun ProxyScrollApp(
                             onScrollQuietChanged = { scrollingQuiet = it },
                             onOpenSettings = { showSettings = true },
                             onOpenTrash = { showTrash = true },
+                            activeGroupFilter = activeGroupFilter,
+                            onActiveGroupFilterChanged = onActiveGroupFilterChanged,
                         )
                     }
                 }
@@ -494,22 +501,25 @@ private fun NotesScreen(
     onBulkPinned: (Collection<Note>, Boolean) -> Unit,
     onAssignGroup: (Collection<Note>, String?) -> Unit,
     onCreateGroup: (String, Long) -> Unit,
+    onUpdateGroup: (NoteGroup, String, Long) -> Unit,
     onDeleteGroup: (String) -> Unit,
     onMoveToTrash: (List<Note>) -> Unit,
     onScrollQuietChanged: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTrash: () -> Unit,
+    activeGroupFilter: String?,
+    onActiveGroupFilterChanged: (String?) -> Unit,
 ) {
     val searchInteractionSource = remember { MutableInteractionSource() }
     val searchFocused by searchInteractionSource.collectIsFocusedAsState()
     val listState = rememberLazyListState()
-    var selectedGroupId by remember { mutableStateOf<String?>(null) }
     var showCreateGroup by remember { mutableStateOf(false) }
+    var editingGroup by remember { mutableStateOf<NoteGroup?>(null) }
     var pendingDeleteGroup by remember { mutableStateOf<NoteGroup?>(null) }
     var tintOrigin by remember { mutableStateOf(Offset(160f, 220f)) }
-    val selectedGroup = state.groups.firstOrNull { it.id == selectedGroupId }
-    val visibleNotes = remember(state.notes, selectedGroupId) {
-        selectedGroupId?.let { id -> state.notes.filter { it.groupId == id } } ?: state.notes
+    val selectedGroup = state.groups.firstOrNull { it.id == activeGroupFilter }
+    val visibleNotes = remember(state.notes, activeGroupFilter) {
+        activeGroupFilter?.let { id -> state.notes.filter { it.groupId == id } } ?: state.notes
     }
     val noteGroups = remember(visibleNotes, state.groups) {
         groupNotes(visibleNotes, state.groups)
@@ -520,8 +530,8 @@ private fun NotesScreen(
         label = "group-tint-color",
     )
     val tintWave = remember { Animatable(0f) }
-    LaunchedEffect(selectedGroupId) {
-        if (selectedGroupId == null) {
+    LaunchedEffect(activeGroupFilter) {
+        if (activeGroupFilter == null) {
             tintWave.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
         } else {
             tintWave.snapTo(0.08f)
@@ -529,8 +539,8 @@ private fun NotesScreen(
         }
     }
     LaunchedEffect(state.groups.map { it.id }) {
-        if (selectedGroupId != null && state.groups.none { it.id == selectedGroupId }) {
-            selectedGroupId = null
+        if (activeGroupFilter != null && state.groups.none { it.id == activeGroupFilter }) {
+            onActiveGroupFilterChanged(null)
         }
     }
     var selectedIds by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -778,21 +788,21 @@ private fun NotesScreen(
             LiquidGroupRail(
                 groups = state.groups,
                 notes = state.notes,
-                selectedGroupId = selectedGroupId,
+                selectedGroupId = activeGroupFilter,
                 assignmentMode = selectionMode,
                 onSelected = { group, origin ->
                     tintOrigin = origin
                     if (selectionMode) {
                         onAssignGroup(selectedNotes, group?.id)
                         selectedIds = emptyList()
-                        selectedGroupId = group?.id
+                        onActiveGroupFilterChanged(group?.id)
                     } else {
-                        selectedGroupId = group?.id
+                        onActiveGroupFilterChanged(group?.id)
                     }
                 },
                 onCreate = { showCreateGroup = true },
                 onLongPress = { group ->
-                    if (!group.builtIn) pendingDeleteGroup = group
+                    if (!group.builtIn) editingGroup = group
                 },
             )
             Spacer(Modifier.height(12.dp))
@@ -834,7 +844,7 @@ private fun NotesScreen(
 
             if (visibleNotes.isEmpty()) {
                 EmptyNotes(
-                    isSearching = state.query.isNotBlank() || selectedGroupId != null,
+                    isSearching = state.query.isNotBlank() || activeGroupFilter != null,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(bottom = 88.dp),
@@ -878,11 +888,26 @@ private fun NotesScreen(
         }
     }
     if (showCreateGroup) {
-        CreateGroupDialog(
+        GroupStudioDialog(
+            group = null,
             onDismiss = { showCreateGroup = false },
-            onCreate = { name, color ->
+            onSave = { name, color ->
                 onCreateGroup(name, color)
                 showCreateGroup = false
+            },
+        )
+    }
+    editingGroup?.let { group ->
+        GroupStudioDialog(
+            group = group,
+            onDismiss = { editingGroup = null },
+            onSave = { name, color ->
+                onUpdateGroup(group, name, color)
+                editingGroup = null
+            },
+            onDelete = {
+                editingGroup = null
+                pendingDeleteGroup = group
             },
         )
     }
@@ -1384,34 +1409,81 @@ private fun LiquidGroupOrb(
 }
 
 @Composable
-private fun CreateGroupDialog(
+private fun GroupStudioDialog(
+    group: NoteGroup?,
     onDismiss: () -> Unit,
-    onCreate: (String, Long) -> Unit,
+    onSave: (String, Long) -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
-    val colors = remember {
-        listOf(
-            0xFF65B9FF,
-            0xFF9B80FF,
-            0xFFFF8E8A,
-            0xFF59D4B1,
-            0xFFF3BC62,
-            0xFFFF6685,
-            0xFF57D7EA,
-            0xFF7587FF,
-        )
+    val colors = remember(group?.colorArgb) {
+        buildList {
+            group?.colorArgb?.let { add(it) }
+            addAll(
+                listOf(
+                    0xFF65B9FF,
+                    0xFF9B80FF,
+                    0xFFFF8E8A,
+                    0xFF59D4B1,
+                    0xFFF3BC62,
+                    0xFFFF6685,
+                    0xFF57D7EA,
+                    0xFF7587FF,
+                ),
+            )
+        }.distinct()
     }
-    var name by remember { mutableStateOf("") }
-    var selectedColor by remember { mutableStateOf(colors.first()) }
+    var name by remember(group?.id) { mutableStateOf(group?.name.orEmpty()) }
+    var selectedColor by remember(group?.id) {
+        mutableStateOf(group?.colorArgb ?: colors.first())
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Новая цветовая группа") },
+        title = { Text(if (group == null) "Новая группа" else "Настроить группу") },
         text = {
             Column {
                 Text(
-                    "Название и цвет можно использовать как быстрый фильтр",
+                    if (group == null) {
+                        "Создайте свой быстрый фильтр для заметок"
+                    } else {
+                        "Название и цвет обновятся во всех заметках группы"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(14.dp))
+                ProxySurface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(64.dp),
+                    role = ProxySurfaceRole.CARD,
+                    strong = true,
+                    active = true,
+                    interactive = false,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(Color(selectedColor)),
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = name.ifBlank { "Название группы" },
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (name.isBlank()) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                    }
+                }
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = name,
@@ -1465,13 +1537,20 @@ private fun CreateGroupDialog(
         confirmButton = {
             TextButton(
                 enabled = name.isNotBlank(),
-                onClick = { onCreate(name.trim(), selectedColor) },
+                onClick = { onSave(name.trim(), selectedColor) },
             ) {
-                Text("Создать")
+                Text(if (group == null) "Создать" else "Сохранить")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Отмена") }
+            Row {
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) {
+                        Text("Удалить", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                TextButton(onClick = onDismiss) { Text("Отмена") }
+            }
         },
     )
 }
@@ -1852,6 +1931,89 @@ private fun NoteFlagMenuButton(
 }
 
 @Composable
+private fun NoteGroupMenuButton(
+    selectedGroupId: String?,
+    groups: List<NoteGroup>,
+    onSelected: (String?) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedGroup = groups.firstOrNull { it.id == selectedGroupId }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.Palette,
+                    contentDescription = "Группа заметки",
+                    tint = selectedGroup?.let(::noteGroupColor)
+                        ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                selectedGroup?.let { group ->
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(noteGroupColor(group)),
+                    )
+                }
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Без группы") },
+                leadingIcon = {
+                    Box(
+                        Modifier
+                            .size(18.dp)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                    )
+                },
+                trailingIcon = {
+                    if (selectedGroupId == null) {
+                        Icon(Icons.Default.Check, contentDescription = null)
+                    }
+                },
+                onClick = {
+                    expanded = false
+                    onSelected(null)
+                },
+            )
+            groups.forEach { group ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = group.name,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    leadingIcon = {
+                        Box(
+                            Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(noteGroupColor(group)),
+                        )
+                    },
+                    trailingIcon = {
+                        if (selectedGroupId == group.id) {
+                            Icon(Icons.Default.Check, contentDescription = null)
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelected(group.id)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun NoteFlagSwatch(
     flag: NoteColorFlag,
     selected: Boolean,
@@ -1914,17 +2076,20 @@ private enum class EditorSaveState { CLEAN, EDITING, SAVED }
 @Composable
 private fun NoteEditorScreen(
     note: Note?,
+    groups: List<NoteGroup>,
     inputMotion: InputMotion,
-    onSave: (Note?, String, String, List<NoteSpan>, NoteColorFlag) -> Note?,
+    onSave: (Note?, String, String, List<NoteSpan>, String?) -> Note?,
     onDelete: (Note) -> Unit,
     onClose: () -> Unit,
     onTypingQuietChanged: (Boolean) -> Unit,
 ) {
     var savedNote by remember(note?.id) { mutableStateOf(note) }
     var title by remember(note?.id) { mutableStateOf(note?.title.orEmpty()) }
-    var colorFlag by remember(note?.id) {
-        mutableStateOf(note?.colorFlag ?: NoteColorFlag.NONE)
+    var selectedGroupId by remember(note?.id) {
+        mutableStateOf(note?.groupId)
     }
+    val selectedGroup = groups.firstOrNull { it.id == selectedGroupId }
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     val richText = remember(note?.id) {
         RichTextState(note?.body.orEmpty(), note?.spans.orEmpty())
     }
@@ -1948,12 +2113,17 @@ private fun NoteEditorScreen(
         label = "editor-focus-glow",
     )
     val editorPlaneAlpha by animateFloatAsState(
-        targetValue = if (bodyFocused) 0.34f else 0.18f,
+        targetValue = when {
+            liteLife && bodyFocused -> 0.18f
+            liteLife -> 0.08f
+            bodyFocused -> 0.34f
+            else -> 0.18f
+        },
         animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "editor-content-contrast",
     )
     val titleVerticalPadding by animateDpAsState(
-        targetValue = if (bodyFocused) 6.dp else 14.dp,
+        targetValue = if (bodyFocused || liteLife) 6.dp else 14.dp,
         animationSpec = tween(240, easing = FastOutSlowInEasing),
         label = "editor-title-space",
     )
@@ -1973,7 +2143,7 @@ private fun NoteEditorScreen(
             title,
             richText.value.text,
             richText.toSpans(),
-            colorFlag,
+            selectedGroupId,
         )
         if (result != null) savedNote = result
         hasChanges = false
@@ -2001,12 +2171,20 @@ private fun NoteEditorScreen(
 
     BackHandler(onBack = ::finishEditing)
 
+    LaunchedEffect(groups.map { it.id }) {
+        if (selectedGroupId != null && groups.none { it.id == selectedGroupId }) {
+            selectedGroupId = null
+            hasChanges = true
+            saveState = EditorSaveState.EDITING
+        }
+    }
+
     LaunchedEffect(note?.id) {
         delay(260)
         bodyFocusRequester.requestFocus()
     }
 
-    LaunchedEffect(title, richText.revision, colorFlag) {
+    LaunchedEffect(title, richText.revision, selectedGroupId) {
         if (!hasChanges) return@LaunchedEffect
         delay(inputMotion.autosaveDelayMillis)
         saveNow()
@@ -2068,11 +2246,12 @@ private fun NoteEditorScreen(
                     }
                 },
                 actions = {
-                    NoteFlagMenuButton(
-                        selected = colorFlag,
-                        onSelected = { selectedFlag ->
-                            if (colorFlag != selectedFlag) {
-                                colorFlag = selectedFlag
+                    NoteGroupMenuButton(
+                        selectedGroupId = selectedGroupId,
+                        groups = groups,
+                        onSelected = { groupId ->
+                            if (selectedGroupId != groupId) {
+                                selectedGroupId = groupId
                                 hasChanges = true
                                 saveState = EditorSaveState.EDITING
                             }
@@ -2155,7 +2334,7 @@ private fun NoteEditorScreen(
                     .fillMaxWidth()
                     .animateContentSize(animationSpec = tween(240))
                     .padding(horizontal = 6.dp, vertical = titleVerticalPadding),
-                textStyle = (if (bodyFocused) {
+                textStyle = (if (bodyFocused || liteLife) {
                     MaterialTheme.typography.titleLarge
                 } else {
                     MaterialTheme.typography.headlineMedium
@@ -2171,7 +2350,7 @@ private fun NoteEditorScreen(
                         if (title.isEmpty()) {
                             Text(
                                 text = "Название — необязательно",
-                                style = if (bodyFocused) {
+                                style = if (bodyFocused || liteLife) {
                                     MaterialTheme.typography.titleLarge
                                 } else {
                                     MaterialTheme.typography.headlineMedium
@@ -2202,7 +2381,9 @@ private fun NoteEditorScreen(
             val glowColor = MaterialTheme.colorScheme.primary
             val editorCornerDp = LocalProxyShape.current.resolvedInputCornerDp
             val editorMorphCorner by animateDpAsState(
-                targetValue = (editorCornerDp + if (bodyFocused) 6 else 0).dp,
+                targetValue = (
+                    editorCornerDp + if (bodyFocused && !liteLife) 6 else 0
+                ).dp,
                 animationSpec = spring(
                     dampingRatio = 0.74f,
                     stiffness = 360f,
@@ -2216,7 +2397,7 @@ private fun NoteEditorScreen(
                     .weight(1f),
                 shape = editorShape,
                 role = ProxySurfaceRole.INPUT,
-                strong = bodyFocused,
+                strong = bodyFocused && !liteLife,
                 active = bodyFocused,
                 deformContent = false,
                 interactive = false,
@@ -2241,17 +2422,15 @@ private fun NoteEditorScreen(
                             }
                         },
                 ) {
-                    TypingOpticalTrail(
-                        layoutResult = bodyTextLayout,
-                        characterIndex = typingPulseIndex,
-                        reveal = typingReveal.value,
-                        color = if (colorFlag == NoteColorFlag.NONE) {
-                            glowColor
-                        } else {
-                            noteFlagColor(colorFlag)
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    if (!liteLife) {
+                        TypingOpticalTrail(
+                            layoutResult = bodyTextLayout,
+                            characterIndex = typingPulseIndex,
+                            reveal = typingReveal.value,
+                            color = selectedGroup?.let(::noteGroupColor) ?: glowColor,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                     BasicTextField(
                     value = richText.value,
                     onValueChange = { nextValue ->
