@@ -1,6 +1,6 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes app for Android. The current build is **0.5.9-alpha15**.
+ProxyScroll is an offline-first notes app for Android. The current build is **0.5.10-alpha16**.
 
 ## Alpha features
 
@@ -8,7 +8,7 @@ ProxyScroll is an offline-first notes app for Android. The current build is **0.
 - Automatic three-word titles when the title field is left empty
 - Bold, underline, strikethrough, and font sizes from 10 to 72 sp
 - Font-size adjustment in two-point steps or by an exact custom value
-- Selection Lens with native handles and smart word, sentence, and paragraph expansion
+- Selection controls below the content plane, with native handles and smart word, sentence, and paragraph expansion
 - Range-based rich-text rendering that keeps IME input independent from formatting
 - Rich formatting preserved in note previews and local storage
 - Three input-motion modes: Direct, Gentle, and Flowing
@@ -17,13 +17,13 @@ ProxyScroll is an offline-first notes app for Android. The current build is **0.
 - Liquid Glass material with translucent rims, refraction, and slow ambient light
 - Royal Graphite material generated procedurally from cold sheen, layers, and micro-grooves
 - Smooth theme and typography transitions
-- Staggered note appearance, animated placement, and physical press feedback
+- Scroll-stable note cards with animated placement and physical press feedback
 - Persistent appearance and input settings
 - Shape Studio with an animated live preview
 - Global corner character from angular to soft, plus separate card, input, and button controls
 - Focus-first editor surface and compact note cards
 - Coalesced Undo and Redo history tuned for continuous typing
-- Inline Selection Lens anchored near the active fragment
+- Compact selection context that never covers the active fragment
 - One-tap formatting reset for selected text
 - Lifecycle-safe saving when the app moves to the background
 - Recoverable deletion with an Undo snackbar
@@ -53,6 +53,9 @@ ProxyScroll is an offline-first notes app for Android. The current build is **0.
 - IME-safe typing bloom with a short directional light trail for newly inserted glyphs
 - Opaque privacy frost that makes background content unreadable behind settings
 - Scale, shape, and directional transition morphing between notes, editor, and settings
+- Long-press colour editing directly from a note card, plus a compact editor palette
+- Keyboard focus mode with a larger, higher-contrast writing plane and reduced chrome
+- Scroll-safe card material without per-item viewport re-entry animations or pointer optics
 
 ## Storage and compatibility
 
@@ -62,7 +65,7 @@ The UI depends on the domain repository contract rather than its SharedPreferenc
 
 ## Build
 
-GitHub Actions builds the debug APK on every push to `main`. Open the latest **Build Alpha APK** workflow run, download the `ProxyScroll-0.5.9-alpha15-debug` artifact, unzip it, and install the APK on Android 8.0 or newer.
+GitHub Actions builds the debug APK on every push to `main`. Open the latest **Build Alpha APK** workflow run, download the `ProxyScroll-0.5.10-alpha16-debug` artifact, unzip it, and install the APK on Android 8.0 or newer.
 
 Alpha APKs use a repository-local debug-only signing key so later Alpha builds can update in place without erasing local notes. This key must never be used for a production release.
 
