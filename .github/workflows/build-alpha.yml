@@ -46,6 +46,25 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk installers/ProxyScroll-0.7.0-alpha17-update.apk
           cp app/build/outputs/apk/sidecar/app-sidecar.apk installers/ProxyScroll-0.7.0-alpha17-sidecar.apk
 
+      - name: Apply compatibility signatures
+        run: |
+          set -euo pipefail
+          for apk in installers/*.apk; do
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f 4 "$apk" "$apk.aligned"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+              --ks app/proxyscroll-alpha.keystore \
+              --ks-key-alias proxyscrollalpha \
+              --ks-pass pass:android \
+              --key-pass pass:android \
+              --v1-signing-enabled true \
+              --v2-signing-enabled true \
+              --v3-signing-enabled true \
+              --v4-signing-enabled false \
+              --out "$apk.signed" \
+              "$apk.aligned"
+            mv "$apk.signed" "$apk"
+          done
+
       - name: Verify installability
         run: |
           set -euo pipefail
