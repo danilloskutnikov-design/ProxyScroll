@@ -40,6 +40,7 @@ class ThemePreferences(
             inputCornerDp = preferences.getInt(KEY_INPUT_CORNER, defaults.inputCornerDp),
             buttonCornerDp = preferences.getInt(KEY_BUTTON_CORNER, defaults.buttonCornerDp),
             linked = preferences.getBoolean(KEY_CORNERS_LINKED, defaults.linked),
+            customEnabled = preferences.getBoolean(KEY_CUSTOM_SHAPE_ENABLED, false),
         )
     }
 
@@ -50,6 +51,7 @@ class ThemePreferences(
             .putInt(KEY_INPUT_CORNER, shape.inputCornerDp)
             .putInt(KEY_BUTTON_CORNER, shape.buttonCornerDp)
             .putBoolean(KEY_CORNERS_LINKED, shape.linked)
+            .putBoolean(KEY_CUSTOM_SHAPE_ENABLED, shape.customEnabled)
             .apply()
     }
 
@@ -81,6 +83,7 @@ class ThemePreferences(
         const val KEY_INPUT_CORNER = "input_corner_dp"
         const val KEY_BUTTON_CORNER = "button_corner_dp"
         const val KEY_CORNERS_LINKED = "corners_linked"
+        const val KEY_CUSTOM_SHAPE_ENABLED = "custom_shape_enabled"
         const val KEY_STAIN_PALETTE = "stain_palette"
         const val KEY_STAIN_INTENSITY = "stain_intensity"
         const val KEY_MATERIAL_DEPTH = "material_depth"
