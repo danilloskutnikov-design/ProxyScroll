@@ -1,6 +1,6 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes app for Android. The current build is **0.10.0-alpha23**.
+ProxyScroll is an offline-first notes app for Android. The current build is **0.11.0-alpha24**.
 
 ## Alpha features
 
@@ -79,6 +79,10 @@ ProxyScroll is an offline-first notes app for Android. The current build is **0.
 - Contextual bulk assignment: select cards, then touch a group orb
 - Backward-compatible migration from fixed colour flags to built-in groups
 - LiteLife: a fourth, minimal dark theme with flat readable planes and no grain or optical trails
+- Group Studio for renaming and recolouring custom note groups without losing assignments
+- Full group selection inside the editor, including custom groups and an explicit ungrouped state
+- Persistent group filter restored after restarting the app, with safe fallback after deletion
+- Cleaner LiteLife editor focus with restrained surfaces and no decorative typing trail
 
 ## Storage and compatibility
 
@@ -88,7 +92,7 @@ The UI depends on the domain repository contract rather than its SharedPreferenc
 
 ## Build
 
-GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.10.0-alpha23-update.apk` to update the normal package while keeping local notes. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.10.0-alpha23-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.10.0-alpha23-installers` artifact and support Android 8.0 or newer.
+GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.11.0-alpha24-update.apk` to update the normal package while keeping local notes. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.11.0-alpha24-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.11.0-alpha24-installers` artifact and support Android 8.0 or newer.
 
 Alpha APKs use a repository-local debug-only signing key so later Alpha builds can update in place without erasing local notes. This key must never be used for a production release.
 

@@ -37,15 +37,13 @@ class NotesViewModel(
         title: String,
         body: String,
         spans: List<NoteSpan>,
-        colorFlag: NoteColorFlag,
+        groupId: String?,
     ): Note? {
         if (existing == null && title.isBlank() && body.isBlank()) return null
         val now = System.currentTimeMillis()
         val resolvedTitle = title.trimEnd().ifBlank { titleFromBody(body) }
-        val resolvedGroupId = when {
-            existing == null -> colorFlag.defaultGroupId()
-            existing.colorFlag != colorFlag -> colorFlag.defaultGroupId()
-            else -> existing.groupId ?: colorFlag.defaultGroupId()
+        val resolvedGroupId = groupId?.takeIf { candidate ->
+            repository.getGroups().any { it.id == candidate }
         }
         val saved = Note(
             id = existing?.id ?: UUID.randomUUID().toString(),
@@ -53,7 +51,7 @@ class NotesViewModel(
             body = body,
             spans = spans,
             isPinned = existing?.isPinned ?: false,
-            colorFlag = colorFlag,
+            colorFlag = legacyFlagForGroup(resolvedGroupId),
             groupId = resolvedGroupId,
             createdAt = existing?.createdAt ?: now,
             updatedAt = now,
@@ -159,6 +157,19 @@ class NotesViewModel(
                 name = trimmed,
                 colorArgb = colorArgb,
                 order = order,
+            ),
+        )
+        refresh()
+    }
+
+    fun updateGroup(group: NoteGroup, name: String, colorArgb: Long) {
+        if (group.builtIn) return
+        val trimmed = name.trim().take(28)
+        if (trimmed.isBlank()) return
+        repository.upsertGroup(
+            group.copy(
+                name = trimmed,
+                colorArgb = colorArgb,
             ),
         )
         refresh()
