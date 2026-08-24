@@ -189,7 +189,19 @@ fun ProxyScrollApp(
     var showSettings by remember { mutableStateOf(false) }
     var typingQuiet by remember { mutableStateOf(false) }
     var scrollingQuiet by remember { mutableStateOf(false) }
-    val settingsChromeShape = remember(showSettings) { interfaceShape }
+    val settingsChromeShape = remember(showSettings) {
+        if (selectedTheme == AppTheme.OLD_SCROLL && interfaceShape == InterfaceShape()) {
+            InterfaceShape(
+                globalCornerDp = 8,
+                cardCornerDp = 8,
+                inputCornerDp = 8,
+                buttonCornerDp = 10,
+                linked = false,
+            )
+        } else {
+            interfaceShape
+        }
+    }
     val settingsFogProgress by animateFloatAsState(
         targetValue = if (showSettings && !editorOpen) 1f else 0f,
         animationSpec = tween(520, easing = FastOutSlowInEasing),
