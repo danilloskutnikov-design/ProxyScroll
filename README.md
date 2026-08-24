@@ -1,6 +1,6 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes app for Android. The current build is **0.4.0-alpha05**.
+ProxyScroll is an offline-first notes app for Android. The current build is **0.5.0-alpha06**.
 
 ## Alpha features
 
@@ -19,6 +19,9 @@ ProxyScroll is an offline-first notes app for Android. The current build is **0.
 - Smooth theme and typography transitions
 - Staggered note appearance, animated placement, and physical press feedback
 - Persistent appearance and input settings
+- Shape Studio with an animated live preview
+- Global corner character from angular to soft, plus separate card, input, and button controls
+- Focus-first editor surface and compact note cards
 
 ## Storage and compatibility
 
@@ -28,7 +31,7 @@ The UI depends on the domain repository contract rather than its SharedPreferenc
 
 ## Build
 
-GitHub Actions builds the debug APK on every push to `main`. Open the latest **Build Alpha APK** workflow run, download the `ProxyScroll-0.4.0-alpha05-debug` artifact, unzip it, and install the APK on Android 8.0 or newer.
+GitHub Actions builds the debug APK on every push to `main`. Open the latest **Build Alpha APK** workflow run, download the `ProxyScroll-0.5.0-alpha06-debug` artifact, unzip it, and install the APK on Android 8.0 or newer.
 
 Alpha APKs use a repository-local debug-only signing key so later Alpha builds can update in place without erasing local notes. This key must never be used for a production release.
 
