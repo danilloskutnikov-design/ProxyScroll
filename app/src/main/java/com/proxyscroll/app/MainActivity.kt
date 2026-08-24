@@ -40,6 +40,9 @@ class MainActivity : ComponentActivity() {
             var stainSettings by remember {
                 mutableStateOf(themePreferences.getStainSettings())
             }
+            var activeGroupFilter by remember {
+                mutableStateOf(themePreferences.getActiveGroupFilter())
+            }
             LaunchedEffect(stainSettings) {
                 delay(320)
                 themePreferences.setStainSettings(stainSettings)
@@ -67,6 +70,11 @@ class MainActivity : ComponentActivity() {
                 stainSettings = stainSettings,
                 onStainSettingsChanged = { settings ->
                     stainSettings = settings
+                },
+                activeGroupFilter = activeGroupFilter,
+                onActiveGroupFilterChanged = { groupId ->
+                    activeGroupFilter = groupId
+                    themePreferences.setActiveGroupFilter(groupId)
                 },
             )
         }
