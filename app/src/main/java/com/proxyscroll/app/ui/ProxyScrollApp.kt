@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -96,6 +97,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -115,10 +117,12 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -185,6 +189,7 @@ fun ProxyScrollApp(
     var showSettings by remember { mutableStateOf(false) }
     var typingQuiet by remember { mutableStateOf(false) }
     var scrollingQuiet by remember { mutableStateOf(false) }
+    val settingsChromeShape = remember(showSettings) { interfaceShape }
     val settingsFogProgress by animateFloatAsState(
         targetValue = if (showSettings && !editorOpen) 1f else 0f,
         animationSpec = tween(520, easing = FastOutSlowInEasing),
@@ -210,6 +215,7 @@ fun ProxyScrollApp(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .zIndex(0f)
                     .blur(radius = settingsFogRadius)
                     .graphicsLayer {
                         scaleX = settingsBackgroundScale
@@ -285,15 +291,11 @@ fun ProxyScrollApp(
                 }
             }
 
-            ProxySettingsFog(
-                selectedTheme = selectedTheme,
-                progress = settingsFogProgress,
-                modifier = Modifier.fillMaxSize(),
-            )
-
             AnimatedVisibility(
                 visible = showSettings && !editorOpen,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(10f),
                 enter = fadeIn(tween(220)) +
                     slideInVertically(tween(420)) { it / 8 } +
                     scaleIn(tween(420), initialScale = 0.955f),
@@ -301,23 +303,43 @@ fun ProxyScrollApp(
                     slideOutVertically(tween(300)) { it / 10 } +
                     scaleOut(tween(260), targetScale = 0.98f),
             ) {
-                SettingsSheet(
-                    selectedTheme = selectedTheme,
-                    onThemeSelected = onThemeSelected,
-                    inputMotion = inputMotion,
-                    onInputMotionSelected = onInputMotionSelected,
-                    interfaceShape = interfaceShape,
-                    onInterfaceShapeChanged = onInterfaceShapeChanged,
-                    stainSettings = stainSettings,
-                    onStainSettingsChanged = onStainSettingsChanged,
-                    onDismiss = { showSettings = false },
-                )
+                Box(Modifier.fillMaxSize()) {
+                    ProxySettingsFog(
+                        selectedTheme = selectedTheme,
+                        progress = settingsFogProgress,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(0f),
+                    )
+                    CompositionLocalProvider(
+                        LocalProxyShape provides settingsChromeShape,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(1f),
+                        ) {
+                            SettingsSheet(
+                                selectedTheme = selectedTheme,
+                                onThemeSelected = onThemeSelected,
+                                inputMotion = inputMotion,
+                                onInputMotionSelected = onInputMotionSelected,
+                                interfaceShape = interfaceShape,
+                                onInterfaceShapeChanged = onInterfaceShapeChanged,
+                                stainSettings = stainSettings,
+                                onStainSettingsChanged = onStainSettingsChanged,
+                                onDismiss = { showSettings = false },
+                            )
+                        }
+                    }
+                }
             }
 
             SnackbarHost(
                 hostState = snackbarHostState,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .zIndex(20f)
                     .navigationBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             ) { snackbarData ->
@@ -1081,8 +1103,10 @@ private fun NoteEditorScreen(
         typingReveal.animateTo(
             targetValue = 1f,
             animationSpec = tween(
-                durationMillis = inputMotion.pulseMillis.coerceIn(140, 300),
-                easing = FastOutSlowInEasing,
+                durationMillis = (inputMotion.pulseMillis * 2.3f)
+                    .roundToInt()
+                    .coerceIn(380, 680),
+                easing = LinearOutSlowInEasing,
             ),
         )
     }
@@ -1295,6 +1319,17 @@ private fun NoteEditorScreen(
                             }
                         },
                 ) {
+                    TypingOpticalTrail(
+                        layoutResult = bodyTextLayout,
+                        characterIndex = typingPulseIndex,
+                        reveal = typingReveal.value,
+                        color = if (colorFlag == NoteColorFlag.NONE) {
+                            glowColor
+                        } else {
+                            noteFlagColor(colorFlag)
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
                     BasicTextField(
                     value = richText.value,
                     onValueChange = { nextValue ->
@@ -1338,52 +1373,6 @@ private fun NoteEditorScreen(
                         }
                     },
                     )
-                    Canvas(Modifier.fillMaxSize()) {
-                        val layoutResult = bodyTextLayout ?: return@Canvas
-                        val index = typingPulseIndex
-                        if (index !in richText.value.text.indices) return@Canvas
-                        val glyphBox = layoutResult.getBoundingBox(index)
-                        val paddingX = 20.dp.toPx()
-                        val paddingY = 18.dp.toPx()
-                        val decay = 1f - typingReveal.value
-                        if (decay <= 0.001f) return@Canvas
-                        val center = Offset(
-                            x = paddingX + glyphBox.center.x,
-                            y = paddingY + glyphBox.center.y,
-                        )
-                        val pulseColor = if (colorFlag == NoteColorFlag.NONE) {
-                            glowColor
-                        } else {
-                            noteFlagColor(colorFlag)
-                        }
-                        val radius = maxOf(glyphBox.width, glyphBox.height) *
-                            (1.20f + decay * 0.90f)
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = decay * 0.22f),
-                                    pulseColor.copy(alpha = decay * 0.16f),
-                                    Color.Transparent,
-                                ),
-                                center = center,
-                                radius = radius,
-                            ),
-                            center = center,
-                            radius = radius,
-                        )
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    pulseColor.copy(alpha = decay * 0.08f),
-                                    Color.Transparent,
-                                ),
-                                center = center - Offset(radius * 0.34f, 0f),
-                                radius = radius * 0.84f,
-                            ),
-                            center = center - Offset(radius * 0.34f, 0f),
-                            radius = radius * 0.84f,
-                        )
-                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -1411,6 +1400,60 @@ private fun NoteEditorScreen(
                     Text("Удалить", color = MaterialTheme.colorScheme.error)
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun TypingOpticalTrail(
+    layoutResult: TextLayoutResult?,
+    characterIndex: Int,
+    reveal: Float,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier) {
+        val layout = layoutResult ?: return@Canvas
+        if (characterIndex !in 0 until layout.layoutInput.text.length) return@Canvas
+        val glyphBox = layout.getBoundingBox(characterIndex)
+        val progress = reveal.coerceIn(0f, 1f)
+        val fade = (1f - progress) * (1f - progress * 0.42f)
+        if (fade <= 0.002f) return@Canvas
+
+        val padding = Offset(20.dp.toPx(), 18.dp.toPx())
+        val center = padding + glyphBox.center + Offset(0f, glyphBox.height * 0.18f)
+        val baseRadius = maxOf(glyphBox.height * 2.45f, 30.dp.toPx())
+        val radius = baseRadius * (0.88f + progress * 0.62f)
+        val tailCenter = center - Offset(radius * 0.72f, 0f)
+
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    color.copy(alpha = fade * 0.075f),
+                    color.copy(alpha = fade * 0.036f),
+                    Color.Transparent,
+                ),
+                center = tailCenter,
+                radius = radius * 1.72f,
+            ),
+            topLeft = Offset(
+                x = center.x - radius * 1.92f,
+                y = center.y - radius * 0.64f,
+            ),
+            size = Size(radius * 3.35f, radius * 1.28f),
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = fade * 0.045f),
+                    color.copy(alpha = fade * 0.035f),
+                    Color.Transparent,
+                ),
+                center = center,
+                radius = radius * 0.74f,
+            ),
+            center = center,
+            radius = radius * 0.74f,
         )
     }
 }
@@ -1713,7 +1756,7 @@ private fun SettingsSheet(
     onStainSettingsChanged: (StainSettings) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetCorner = (interfaceShape.globalCornerDp + 8).coerceAtMost(32).dp
+    val sheetCorner = (LocalProxyShape.current.globalCornerDp + 8).coerceAtMost(32).dp
     val dismissInteraction = remember { MutableInteractionSource() }
     BackHandler(onBack = onDismiss)
 
@@ -1746,6 +1789,11 @@ private fun SettingsSheet(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(
+                        MaterialTheme.colorScheme.surface.copy(
+                            alpha = if (selectedTheme == AppTheme.LIQUID_GLASS) 0.70f else 0.86f,
+                        ),
+                    )
                     .navigationBarsPadding()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp)
