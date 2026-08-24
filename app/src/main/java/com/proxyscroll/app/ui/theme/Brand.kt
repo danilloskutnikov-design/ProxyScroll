@@ -76,6 +76,7 @@ private fun ProxyBrandMark(
     val depth = LocalStainSettings.current.depth.opticalFactor
     val liquid = style.theme == AppTheme.LIQUID_GLASS
     val oldScroll = style.theme == AppTheme.OLD_SCROLL
+    val liteLife = style.theme == AppTheme.LITE_LIFE
     val bodyColors = when (style.theme) {
         AppTheme.LIQUID_GLASS -> listOf(
             palette.primary,
@@ -96,6 +97,12 @@ private fun ProxyBrandMark(
             palette.caustic,
             Color(0xFF8B6236),
             Color(0xFF4E351F),
+        )
+        AppTheme.LITE_LIFE -> listOf(
+            Color(0xFF2D7DE8),
+            Color(0xFF65A9FF),
+            Color(0xFFDCEBFF),
+            Color(0xFF347FDA),
         )
     }
 
@@ -176,6 +183,7 @@ private fun ProxyBrandMark(
                 alpha = when {
                     liquid -> 0.34f
                     oldScroll -> 0.48f
+                    liteLife -> 0f
                     else -> 0.24f
                 },
                 style = Stroke(66f, cap = StrokeCap.Round, join = StrokeJoin.Round),
@@ -186,6 +194,7 @@ private fun ProxyBrandMark(
                 alpha = when {
                     liquid -> 0.24f
                     oldScroll -> 0.30f
+                    liteLife -> 0f
                     else -> 0.14f
                 },
                 style = Stroke(62f, cap = StrokeCap.Round, join = StrokeJoin.Round),
@@ -208,6 +217,7 @@ private fun ProxyBrandWordmark(
     val microstructure = LocalMaterialMicrostructure.current
     val liquid = style.theme == AppTheme.LIQUID_GLASS
     val oldScroll = style.theme == AppTheme.OLD_SCROLL
+    val liteLife = style.theme == AppTheme.LITE_LIFE
     val textStyle = TextStyle(
         fontFamily = MaterialTheme.typography.titleMedium.fontFamily,
         fontWeight = FontWeight.Bold,
@@ -233,6 +243,11 @@ private fun ProxyBrandWordmark(
                 palette.primary,
                 palette.caustic,
                 Color(0xFF79532D),
+            )
+            AppTheme.LITE_LIFE -> listOf(
+                Color(0xFFF4F6FA),
+                Color(0xFFDDE7F5),
+                palette.primary,
             )
         },
         start = Offset(-40f + phase * 34f, 0f),
@@ -285,6 +300,7 @@ private fun ProxyBrandWordmark(
                     alpha = when {
                         liquid -> 0.22f
                         oldScroll -> 0.34f
+                        liteLife -> 0f
                         else -> 0.16f
                     }
                 },
@@ -298,6 +314,7 @@ private fun ProxyBrandWordmark(
                     alpha = when {
                         liquid -> 0.14f
                         oldScroll -> 0.20f
+                        liteLife -> 0f
                         else -> 0.09f
                     }
                 },
