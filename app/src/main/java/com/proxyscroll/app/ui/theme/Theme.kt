@@ -539,6 +539,48 @@ private fun MaterialBackground(
                 ),
             )
         }
+
+        // Material inclusions sit inside the optical field. Each particle has a
+        // palette-tinted halo and an occasional caustic core, so the moving light
+        // changes its apparent colour instead of reading as flat monochrome noise.
+        val grainCount = if (theme == AppTheme.LIQUID_GLASS) 92 else 76
+        val grainBaseAlpha = if (theme == AppTheme.LIQUID_GLASS) {
+            0.026f * stain
+        } else {
+            0.038f * stain
+        }
+        repeat(grainCount) { index ->
+            val xSeed = ((index * 73 + 19) % 101) / 101f
+            val ySeed = ((index * 47 + 11) % 97) / 97f
+            val sizeSeed = ((index * 29 + 7) % 13) / 13f
+            val direction = if (index % 2 == 0) 1f else -1f
+            val shimmer = (0.78f + activeDrift * direction * 0.16f)
+                .coerceIn(0.58f, 0.96f)
+            val center = Offset(
+                x = (size.width * xSeed + activeDrift * direction * size.width * 0.0028f)
+                    .coerceIn(0f, size.width),
+                y = (size.height * ySeed - activeDrift * direction * size.height * 0.0012f)
+                    .coerceIn(0f, size.height),
+            )
+            val spectralColor = when (index % 4) {
+                0 -> palette.primary
+                1 -> palette.secondary
+                2 -> palette.tertiary
+                else -> palette.caustic
+            }
+            drawCircle(
+                color = spectralColor.copy(alpha = grainBaseAlpha * shimmer),
+                radius = (0.42f + sizeSeed * 0.72f).dp.toPx(),
+                center = center,
+            )
+            if (index % 7 == 0) {
+                drawCircle(
+                    color = palette.caustic.copy(alpha = grainBaseAlpha * 1.75f),
+                    radius = (0.18f + sizeSeed * 0.18f).dp.toPx(),
+                    center = center,
+                )
+            }
+        }
     }
 }
 
@@ -769,6 +811,40 @@ fun ProxySurface(
                     center = touchCenter,
                     radius = maxOf(size.width, size.height) * 0.48f,
                 )
+                val glowTouchMix = clarity * 0.32f
+                val liveGlowCenter = Offset(
+                    x = size.width * 0.72f * (1f - glowTouchMix) +
+                        touchCenter.x * glowTouchMix,
+                    y = size.height * 0.76f * (1f - glowTouchMix) +
+                        touchCenter.y * glowTouchMix,
+                )
+                val materialGlowFactor = if (liquid) 1f else 0.76f
+                val subglassGlow = Brush.radialGradient(
+                    colors = listOf(
+                        palette.secondary.copy(
+                            alpha = stainAlpha * (0.90f + clarity * 0.30f) * materialGlowFactor,
+                        ),
+                        palette.primary.copy(
+                            alpha = stainAlpha * 0.54f * materialGlowFactor,
+                        ),
+                        palette.tertiary.copy(
+                            alpha = stainAlpha * 0.22f * materialGlowFactor,
+                        ),
+                        Color.Transparent,
+                    ),
+                    center = liveGlowCenter,
+                    radius = maxOf(size.width, size.height) * 0.76f,
+                )
+                val chromaticTouchBloom = Brush.radialGradient(
+                    colors = listOf(
+                        palette.caustic.copy(alpha = clarity * 0.14f * depthFactor),
+                        palette.secondary.copy(alpha = clarity * 0.10f * depthFactor),
+                        palette.tertiary.copy(alpha = clarity * 0.055f * depthFactor),
+                        Color.Transparent,
+                    ),
+                    center = touchCenter,
+                    radius = maxOf(size.width, size.height) * 0.62f,
+                )
                 val lowerRefraction = Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
@@ -795,12 +871,61 @@ fun ProxySurface(
                     center = Offset(size.width * 0.52f, size.height * 0.50f),
                     radius = maxOf(size.width, size.height) * 0.72f,
                 )
+                val grainCount = when (role) {
+                    ProxySurfaceRole.BUTTON -> 22
+                    ProxySurfaceRole.INPUT -> 38
+                    ProxySurfaceRole.CARD -> 54
+                    ProxySurfaceRole.OVERLAY -> 82
+                }
+                val grainPoints = List(grainCount) { index ->
+                    Offset(
+                        x = size.width * (((index * 67 + 23) % 103) / 103f),
+                        y = size.height * (((index * 43 + 17) % 101) / 101f),
+                    )
+                }
+                val grainBaseAlpha = (
+                    (if (liquid) 0.026f else 0.040f) * depthFactor + stainAlpha * 0.028f
+                ) * (0.94f - clarity * 0.44f)
                 onDrawBehind {
                     drawRect(brush = highlight)
+                    drawRect(brush = subglassGlow)
                     drawRect(brush = lens)
                     drawRect(brush = lowerRefraction)
+                    grainPoints.forEachIndexed { index, center ->
+                        val spectralColor = when (index % 4) {
+                            0 -> palette.primary
+                            1 -> palette.secondary
+                            2 -> palette.tertiary
+                            else -> palette.caustic
+                        }
+                        val radiusSeed = ((index * 31 + 9) % 11) / 11f
+                        drawCircle(
+                            color = spectralColor.copy(
+                                alpha = grainBaseAlpha * (0.72f + radiusSeed * 0.40f),
+                            ),
+                            radius = (0.38f + radiusSeed * 0.62f).dp.toPx(),
+                            center = center,
+                        )
+                    }
                     drawRect(brush = safetyFrost)
+                    grainPoints.forEachIndexed { index, center ->
+                        if (index % 9 == 0) {
+                            val coreColor = when (index % 3) {
+                                0 -> palette.caustic
+                                1 -> palette.secondary
+                                else -> Color.White
+                            }
+                            drawCircle(
+                                color = coreColor.copy(
+                                    alpha = grainBaseAlpha * (1.28f + clarity * 0.90f),
+                                ),
+                                radius = 0.24.dp.toPx(),
+                                center = center,
+                            )
+                        }
+                    }
                     if (clarity > 0.01f) {
+                        drawRect(brush = chromaticTouchBloom)
                         drawRect(brush = touchSpecular)
                     }
                     drawRoundRect(
@@ -938,6 +1063,43 @@ fun ProxyInsetSurface(
         modifier = modifier
             .clip(resolvedShape)
             .background(fillBrush)
+            .drawWithCache {
+                val grainCount = if (role == ProxySurfaceRole.BUTTON) 14 else 26
+                val grainPoints = List(grainCount) { index ->
+                    Offset(
+                        x = size.width * (((index * 61 + 13) % 97) / 97f),
+                        y = size.height * (((index * 37 + 29) % 89) / 89f),
+                    )
+                }
+                val liquid = style.theme == AppTheme.LIQUID_GLASS
+                val grainAlpha = (if (liquid) 0.024f else 0.038f) *
+                    depthFactor * (if (selected) 1.25f else 1f)
+                onDrawBehind {
+                    grainPoints.forEachIndexed { index, center ->
+                        val spectralColor = when (index % 4) {
+                            0 -> palette.primary
+                            1 -> palette.secondary
+                            2 -> palette.tertiary
+                            else -> palette.caustic
+                        }
+                        val radiusSeed = ((index * 23 + 5) % 9) / 9f
+                        drawCircle(
+                            color = spectralColor.copy(
+                                alpha = grainAlpha * (0.72f + radiusSeed * 0.46f),
+                            ),
+                            radius = (0.34f + radiusSeed * 0.52f).dp.toPx(),
+                            center = center,
+                        )
+                        if (index % 8 == 0) {
+                            drawCircle(
+                                color = palette.caustic.copy(alpha = grainAlpha * 1.45f),
+                                radius = 0.20.dp.toPx(),
+                                center = center,
+                            )
+                        }
+                    }
+                }
+            }
             .border(0.7.dp, outline, resolvedShape),
         content = content,
     )
