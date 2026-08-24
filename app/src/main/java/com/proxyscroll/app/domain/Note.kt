@@ -9,6 +9,10 @@ data class Note(
     val colorFlag: NoteColorFlag = NoteColorFlag.NONE,
     val createdAt: Long,
     val updatedAt: Long,
+    /** Stable, human-readable sequence number. It is never reused or renumbered. */
+    val index: Long = 0L,
+    /** Null for active notes; epoch millis after moving the note to Trash. */
+    val deletedAt: Long? = null,
 )
 
 enum class NoteColorFlag(
@@ -40,3 +44,5 @@ data class NoteSpan(
 )
 
 const val DEFAULT_NOTE_FONT_SIZE_SP = 19
+const val TRASH_RETENTION_DAYS = 7
+const val TRASH_RETENTION_MILLIS = TRASH_RETENTION_DAYS * 24L * 60L * 60L * 1000L

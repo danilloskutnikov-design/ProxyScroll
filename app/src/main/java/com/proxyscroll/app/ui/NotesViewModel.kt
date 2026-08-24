@@ -6,33 +6,26 @@ import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteColorFlag
 import com.proxyscroll.app.domain.NoteSpan
 import com.proxyscroll.app.domain.NotesRepository
+import com.proxyscroll.app.domain.TRASH_RETENTION_MILLIS
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import java.util.UUID
 
 data class NotesUiState(
     val notes: List<Note> = emptyList(),
+    val trash: List<Note> = emptyList(),
     val query: String = "",
 )
 
 class NotesViewModel(
     private val repository: NotesRepository,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(
-        NotesUiState(notes = sorted(repository.getAll())),
-    )
+    private val _uiState = MutableStateFlow(loadState(query = "", purgeExpired = true))
     val uiState: StateFlow<NotesUiState> = _uiState.asStateFlow()
 
     fun setQuery(query: String) {
-        val allNotes = repository.getAll()
-        _uiState.update {
-            it.copy(
-                query = query,
-                notes = sorted(allNotes.filter { note -> note.matches(query) }),
-            )
-        }
+        _uiState.value = loadState(query)
     }
 
     fun save(
@@ -54,6 +47,8 @@ class NotesViewModel(
             colorFlag = colorFlag,
             createdAt = existing?.createdAt ?: now,
             updatedAt = now,
+            index = existing?.index?.takeIf { it > 0L } ?: nextIndex(),
+            deletedAt = null,
         )
         repository.upsert(saved)
         refresh()
@@ -81,18 +76,67 @@ class NotesViewModel(
         refresh()
     }
 
-    fun delete(note: Note) {
-        repository.delete(note.id)
+    fun moveToTrash(note: Note) {
+        moveToTrash(listOf(note))
+    }
+
+    fun moveToTrash(notes: Collection<Note>) {
+        repository.moveToTrash(notes.mapTo(mutableSetOf()) { it.id }, System.currentTimeMillis())
         refresh()
     }
 
     fun restore(note: Note) {
-        repository.upsert(note.copy(updatedAt = System.currentTimeMillis()))
+        restore(listOf(note))
+    }
+
+    fun restore(notes: Collection<Note>) {
+        repository.restore(notes.mapTo(mutableSetOf()) { it.id }, System.currentTimeMillis())
+        refresh()
+    }
+
+    fun deleteForever(notes: Collection<Note>) {
+        repository.deleteForever(notes.mapTo(mutableSetOf()) { it.id })
+        refresh()
+    }
+
+    fun emptyTrash() {
+        repository.deleteForever(repository.getTrash().mapTo(mutableSetOf()) { it.id })
+        refresh()
+    }
+
+    fun setPinned(notes: Collection<Note>, pinned: Boolean) {
+        val now = System.currentTimeMillis()
+        repository.upsertAll(notes.map { it.copy(isPinned = pinned, updatedAt = now) })
+        refresh()
+    }
+
+    fun setColorFlag(notes: Collection<Note>, colorFlag: NoteColorFlag) {
+        val now = System.currentTimeMillis()
+        repository.upsertAll(notes.map { it.copy(colorFlag = colorFlag, updatedAt = now) })
         refresh()
     }
 
     private fun refresh() {
-        setQuery(_uiState.value.query)
+        _uiState.value = loadState(_uiState.value.query)
+    }
+
+    private fun loadState(query: String, purgeExpired: Boolean = false): NotesUiState {
+        if (purgeExpired) {
+            repository.purgeDeletedBefore(System.currentTimeMillis() - TRASH_RETENTION_MILLIS)
+        }
+        val active = repository.getAll()
+        return NotesUiState(
+            query = query,
+            notes = sorted(active.filter { note -> note.matches(query) }),
+            trash = repository.getTrash().sortedByDescending { it.deletedAt ?: Long.MIN_VALUE },
+        )
+    }
+
+    private fun nextIndex(): Long {
+        val highest = (repository.getAll() + repository.getTrash())
+            .maxOfOrNull { it.index }
+            ?: 0L
+        return highest + 1L
     }
 
     private fun Note.matches(query: String): Boolean {
