@@ -37,16 +37,56 @@ jobs:
       - name: Install Android SDK 35
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Build Alpha APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Build Alpha APKs
+        run: gradle --no-daemon :app:assembleDebug :app:assembleSidecar
 
-      - name: Name Alpha APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk ProxyScroll-0.5.10-alpha16-debug.apk
+      - name: Prepare installers
+        run: |
+          mkdir -p installers
+          cp app/build/outputs/apk/debug/app-debug.apk installers/ProxyScroll-0.7.0-alpha17-update.apk
+          cp app/build/outputs/apk/sidecar/app-sidecar.apk installers/ProxyScroll-0.7.0-alpha17-sidecar.apk
 
-      - name: Upload Alpha APK
+      - name: Apply stable Alpha signatures
+        run: |
+          set -euo pipefail
+          for apk in installers/*.apk; do
+            aligned_apk="$RUNNER_TEMP/$(basename "$apk").aligned"
+            signed_apk="$RUNNER_TEMP/$(basename "$apk").signed"
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f 4 "$apk" "$aligned_apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+              --ks app/proxyscroll-alpha.keystore \
+              --ks-key-alias proxyscrollalpha \
+              --ks-pass pass:android \
+              --key-pass pass:android \
+              --v1-signing-enabled false \
+              --v2-signing-enabled true \
+              --v3-signing-enabled true \
+              --v4-signing-enabled false \
+              --out "$signed_apk" \
+              "$aligned_apk"
+            mv "$signed_apk" "$apk"
+          done
+
+      - name: Verify installability
+        run: |
+          set -euo pipefail
+          : > installers/APKSIGNER-REPORT.txt
+          for apk in installers/*.apk; do
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -v 4 "$apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify \
+              --verbose \
+              --print-certs \
+              "$apk" | tee -a installers/APKSIGNER-REPORT.txt
+            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" \
+              | sed -n '1,3p' \
+              | tee -a installers/APKSIGNER-REPORT.txt
+          done
+          sha256sum installers/*.apk > installers/SHA256SUMS.txt
+
+      - name: Upload Alpha installers
         uses: actions/upload-artifact@v4
         with:
-          name: ProxyScroll-0.5.10-alpha16-debug
-          path: ProxyScroll-0.5.10-alpha16-debug.apk
+          name: ProxyScroll-0.7.0-alpha17-installers
+          path: installers
           if-no-files-found: error
           retention-days: 30

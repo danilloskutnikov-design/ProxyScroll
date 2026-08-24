@@ -47,6 +47,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -104,6 +105,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -156,6 +158,8 @@ import com.proxyscroll.app.ui.theme.ProxySurface
 import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import com.proxyscroll.app.ui.theme.ProxyThemeBackground
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -180,6 +184,7 @@ fun ProxyScrollApp(
     var editorNote by remember { mutableStateOf<Note?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var typingQuiet by remember { mutableStateOf(false) }
+    var scrollingQuiet by remember { mutableStateOf(false) }
     val settingsFogProgress by animateFloatAsState(
         targetValue = if (showSettings && !editorOpen) 1f else 0f,
         animationSpec = tween(520, easing = FastOutSlowInEasing),
@@ -213,7 +218,7 @@ fun ProxyScrollApp(
             ) {
                 ProxyThemeBackground(
                     selectedTheme = selectedTheme,
-                    motionQuiet = typingQuiet,
+                    motionQuiet = typingQuiet || scrollingQuiet,
                     modifier = Modifier.fillMaxSize(),
                 )
                 AnimatedContent(
@@ -273,6 +278,7 @@ fun ProxyScrollApp(
                             },
                             onTogglePinned = viewModel::togglePinned,
                             onColorFlagChanged = viewModel::setColorFlag,
+                            onScrollQuietChanged = { scrollingQuiet = it },
                             onOpenSettings = { showSettings = true },
                         )
                     }
@@ -410,11 +416,29 @@ private fun NotesScreen(
     onEdit: (Note) -> Unit,
     onTogglePinned: (Note) -> Unit,
     onColorFlagChanged: (Note, NoteColorFlag) -> Unit,
+    onScrollQuietChanged: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val searchInteractionSource = remember { MutableInteractionSource() }
     val searchFocused by searchInteractionSource.collectIsFocusedAsState()
     val noteGroups = remember(state.notes) { groupNotesByFlag(state.notes) }
+    val listState = rememberLazyListState()
+    val currentScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collectLatest { scrolling ->
+                if (scrolling) {
+                    currentScrollQuietChanged(true)
+                } else {
+                    delay(180)
+                    currentScrollQuietChanged(false)
+                }
+            }
+    }
+    DisposableEffect(Unit) {
+        onDispose { currentScrollQuietChanged(false) }
+    }
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -536,6 +560,7 @@ private fun NotesScreen(
                 )
             } else {
                 LazyColumn(
+                    state = listState,
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
