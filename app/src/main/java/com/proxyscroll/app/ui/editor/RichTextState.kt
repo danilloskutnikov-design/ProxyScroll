@@ -9,15 +9,17 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.sp
 import com.proxyscroll.app.domain.DEFAULT_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.domain.NoteSpan
 
-const val SMALL_NOTE_FONT_SIZE_SP = 16
-const val LARGE_NOTE_FONT_SIZE_SP = 24
-const val DISPLAY_NOTE_FONT_SIZE_SP = 30
+const val MIN_NOTE_FONT_SIZE_SP = 10
+const val MAX_NOTE_FONT_SIZE_SP = 72
 
 data class CharacterStyle(
     val bold: Boolean = false,
@@ -26,19 +28,25 @@ data class CharacterStyle(
     val fontSizeSp: Int = DEFAULT_NOTE_FONT_SIZE_SP,
 )
 
+private data class StyleRun(
+    val start: Int,
+    val end: Int,
+    val style: CharacterStyle,
+)
+
 @Stable
 class RichTextState(
     text: String,
     spans: List<NoteSpan>,
 ) {
-    private var characterStyles by mutableStateOf(stylesFromSpans(text, spans))
+    private var styleRuns by mutableStateOf(runsFromSpans(text, spans))
     private var typingStyle by mutableStateOf(
-        characterStyles.lastOrNull() ?: CharacterStyle(),
+        styleRuns.lastOrNull()?.style ?: CharacterStyle(),
     )
 
     var value by mutableStateOf(
         TextFieldValue(
-            annotatedString = annotatedCharacters(text, characterStyles),
+            text = text,
             selection = TextRange(text.length),
         ),
     )
@@ -47,23 +55,41 @@ class RichTextState(
     var revision by mutableIntStateOf(0)
         private set
 
-    val boldActive: Boolean get() = selectedStyles().allOrTyping { it.bold }
-    val underlineActive: Boolean get() = selectedStyles().allOrTyping { it.underline }
-    val strikethroughActive: Boolean get() = selectedStyles().allOrTyping { it.strikethrough }
-    val activeFontSizeSp: Int
-        get() = selectedStyles().distinctBy { it.fontSizeSp }.singleOrNull()?.fontSizeSp
-            ?: typingStyle.fontSizeSp
+    val visualTransformation: VisualTransformation
+        get() = RunsVisualTransformation(styleRuns)
+
+    val hasSelection: Boolean get() = !value.selection.collapsed
+
+    val selectionLength: Int
+        get() = kotlin.math.abs(value.selection.end - value.selection.start)
+
+    val selectedPreview: String
+        get() {
+            val range = normalizedSelection()
+            if (range.first == range.second) return ""
+            return value.text
+                .substring(range.first, range.second)
+                .replace('\n', ' ')
+                .trim()
+                .let { if (it.length <= 30) it else it.take(29) + "…" }
+        }
+
+    val boldActive: Boolean get() = activeStyles().allOrTyping { it.bold }
+    val underlineActive: Boolean get() = activeStyles().allOrTyping { it.underline }
+    val strikethroughActive: Boolean get() = activeStyles().allOrTyping { it.strikethrough }
+    val activeFontSizeSp: Int?
+        get() {
+            val styles = activeStyles()
+            if (styles.isEmpty()) return typingStyle.fontSizeSp
+            return styles.map { it.fontSizeSp }.distinct().singleOrNull()
+        }
 
     fun onValueChange(newValue: TextFieldValue) {
         val oldText = value.text
         val newText = newValue.text
 
         if (oldText == newText) {
-            value = TextFieldValue(
-                annotatedString = annotatedCharacters(newText, characterStyles),
-                selection = newValue.selection,
-                composition = newValue.composition,
-            )
+            value = newValue.asPlainValue()
             if (newValue.selection.collapsed) {
                 typingStyle = styleAtCursor(newValue.selection.start)
             }
@@ -72,19 +98,30 @@ class RichTextState(
 
         val prefix = commonPrefixLength(oldText, newText)
         val suffix = commonSuffixLength(oldText, newText, prefix)
-        val insertedLength = newText.length - prefix - suffix
-        val newStyles = buildList(newText.length) {
-            addAll(characterStyles.take(prefix))
-            repeat(insertedLength.coerceAtLeast(0)) { add(typingStyle) }
-            if (suffix > 0) addAll(characterStyles.takeLast(suffix))
+        val oldEditEnd = oldText.length - suffix
+        val newEditEnd = newText.length - suffix
+        val insertedLength = newEditEnd - prefix
+        val shift = newText.length - oldText.length
+        val insertedStyle = if (value.selection.collapsed) {
+            typingStyle
+        } else {
+            styleAtPosition(prefix)
         }
 
-        characterStyles = newStyles
-        value = TextFieldValue(
-            annotatedString = annotatedCharacters(newText, newStyles),
-            selection = newValue.selection,
-            composition = newValue.composition,
-        )
+        val updatedRuns = buildList {
+            addAll(sliceRuns(styleRuns, 0, prefix))
+            if (insertedLength > 0) {
+                add(StyleRun(prefix, newEditEnd, insertedStyle))
+            }
+            addAll(
+                sliceRuns(styleRuns, oldEditEnd, oldText.length).map { run ->
+                    run.copy(start = run.start + shift, end = run.end + shift)
+                },
+            )
+        }
+
+        styleRuns = normalizeRuns(updatedRuns, newText.length)
+        value = newValue.asPlainValue()
         revision++
     }
 
@@ -103,28 +140,73 @@ class RichTextState(
         transform = { style, enabled -> style.copy(strikethrough = enabled) },
     )
 
-    fun setFontSize(fontSizeSp: Int) {
+    fun adjustFontSize(deltaSp: Int) {
         transformSelection(
-            isActive = { it.fontSizeSp == fontSizeSp },
             forceEnabled = true,
-            transform = { style, _ -> style.copy(fontSizeSp = fontSizeSp) },
+            isActive = { false },
+            transform = { style, _ ->
+                style.copy(
+                    fontSizeSp = (style.fontSizeSp + deltaSp).coerceIn(
+                        MIN_NOTE_FONT_SIZE_SP,
+                        MAX_NOTE_FONT_SIZE_SP,
+                    ),
+                )
+            },
         )
     }
 
-    fun toSpans(): List<NoteSpan> {
-        if (characterStyles.isEmpty()) return emptyList()
-        return buildList {
-            var start = 0
-            var current = characterStyles.first()
-            for (index in 1..characterStyles.size) {
-                val next = characterStyles.getOrNull(index)
-                if (next != current) {
-                    add(current.toNoteSpan(start, index))
-                    start = index
-                    if (next != null) current = next
-                }
-            }
-        }
+    fun setFontSize(fontSizeSp: Int) {
+        val safeSize = fontSizeSp.coerceIn(MIN_NOTE_FONT_SIZE_SP, MAX_NOTE_FONT_SIZE_SP)
+        transformSelection(
+            forceEnabled = true,
+            isActive = { it.fontSizeSp == safeSize },
+            transform = { style, _ -> style.copy(fontSizeSp = safeSize) },
+        )
+    }
+
+    fun selectWord() {
+        val text = value.text
+        if (text.isEmpty()) return
+        var start = normalizedSelection().first.coerceAtMost(text.lastIndex)
+        var end = normalizedSelection().second.coerceAtLeast(start + 1).coerceAtMost(text.length)
+
+        while (start > 0 && text[start - 1].isWordCharacter()) start--
+        while (end < text.length && text[end].isWordCharacter()) end++
+        setSelection(start, end)
+    }
+
+    fun selectSentence() {
+        val text = value.text
+        if (text.isEmpty()) return
+        var start = normalizedSelection().first.coerceAtMost(text.lastIndex)
+        var end = normalizedSelection().second.coerceAtLeast(start + 1).coerceAtMost(text.length)
+
+        while (start > 0 && !text[start - 1].isSentenceBoundary()) start--
+        while (start < text.length && text[start].isWhitespace()) start++
+        while (end < text.length && !text[end - 1].isSentenceBoundary()) end++
+        setSelection(start, end)
+    }
+
+    fun selectParagraph() {
+        val text = value.text
+        if (text.isEmpty()) return
+        var start = normalizedSelection().first.coerceAtMost(text.lastIndex)
+        var end = normalizedSelection().second.coerceAtLeast(start + 1).coerceAtMost(text.length)
+
+        while (start > 0 && text[start - 1] != '\n') start--
+        while (end < text.length && text[end] != '\n') end++
+        setSelection(start, end)
+    }
+
+    fun toSpans(): List<NoteSpan> = styleRuns.map { run ->
+        NoteSpan(
+            start = run.start,
+            end = run.end,
+            bold = run.style.bold,
+            underline = run.style.underline,
+            strikethrough = run.style.strikethrough,
+            fontSizeSp = run.style.fontSizeSp,
+        )
     }
 
     private fun transformSelection(
@@ -139,20 +221,46 @@ class RichTextState(
             return
         }
 
-        val selected = characterStyles.subList(range.first, range.second)
+        val selected = activeStyles()
         val enabled = if (forceEnabled) true else !selected.all(isActive)
-        characterStyles = characterStyles.mapIndexed { index, style ->
-            if (index in range.first until range.second) transform(style, enabled) else style
-        }
-        value = value.copy(annotatedString = annotatedCharacters(value.text, characterStyles))
+        styleRuns = normalizeRuns(
+            styleRuns.flatMap { run ->
+                if (run.end <= range.first || run.start >= range.second) {
+                    listOf(run)
+                } else {
+                    buildList {
+                        if (run.start < range.first) {
+                            add(run.copy(end = range.first))
+                        }
+                        val overlapStart = maxOf(run.start, range.first)
+                        val overlapEnd = minOf(run.end, range.second)
+                        add(
+                            StyleRun(
+                                overlapStart,
+                                overlapEnd,
+                                transform(run.style, enabled),
+                            ),
+                        )
+                        if (run.end > range.second) {
+                            add(run.copy(start = range.second))
+                        }
+                    }
+                }
+            },
+            value.text.length,
+        )
         revision++
     }
 
-    private fun selectedStyles(): List<CharacterStyle> {
+    private fun activeStyles(): List<CharacterStyle> {
         val range = normalizedSelection()
-        return if (range.first == range.second) emptyList() else {
-            characterStyles.subList(range.first, range.second)
-        }
+        if (range.first == range.second) return emptyList()
+        return styleRuns
+            .asSequence()
+            .filter { it.end > range.first && it.start < range.second }
+            .map { it.style }
+            .distinct()
+            .toList()
     }
 
     private fun List<CharacterStyle>.allOrTyping(
@@ -160,16 +268,30 @@ class RichTextState(
     ): Boolean = if (isEmpty()) predicate(typingStyle) else all(predicate)
 
     private fun normalizedSelection(): Pair<Int, Int> {
-        val start = minOf(value.selection.start, value.selection.end)
-            .coerceIn(0, characterStyles.size)
-        val end = maxOf(value.selection.start, value.selection.end)
-            .coerceIn(start, characterStyles.size)
+        val start = minOf(value.selection.start, value.selection.end).coerceIn(0, value.text.length)
+        val end = maxOf(value.selection.start, value.selection.end).coerceIn(start, value.text.length)
         return start to end
     }
 
+    private fun setSelection(start: Int, end: Int) {
+        value = TextFieldValue(
+            text = value.text,
+            selection = TextRange(
+                start.coerceIn(0, value.text.length),
+                end.coerceIn(0, value.text.length),
+            ),
+            composition = null,
+        )
+    }
+
     private fun styleAtCursor(cursor: Int): CharacterStyle {
-        return characterStyles.getOrNull((cursor - 1).coerceAtLeast(0))
-            ?: characterStyles.getOrNull(cursor)
+        if (value.text.isEmpty()) return typingStyle
+        val position = if (cursor > 0) cursor - 1 else 0
+        return styleAtPosition(position)
+    }
+
+    private fun styleAtPosition(position: Int): CharacterStyle {
+        return styleRuns.firstOrNull { position >= it.start && position < it.end }?.style
             ?: typingStyle
     }
 }
@@ -177,57 +299,120 @@ class RichTextState(
 fun annotatedText(
     text: String,
     spans: List<NoteSpan>,
-): AnnotatedString = annotatedCharacters(text, stylesFromSpans(text, spans))
+): AnnotatedString = styledText(
+    text,
+    runsFromSpans(text, spans).map { run ->
+        run.copy(
+            style = run.style.copy(
+                fontSizeSp = run.style.fontSizeSp.coerceIn(13, 22),
+            ),
+        )
+    },
+)
 
-private fun annotatedCharacters(
-    text: String,
-    styles: List<CharacterStyle>,
-): AnnotatedString {
+private class RunsVisualTransformation(
+    private val runs: List<StyleRun>,
+) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        return TransformedText(
+            text = styledText(text.text, runs),
+            offsetMapping = OffsetMapping.Identity,
+        )
+    }
+}
+
+private fun styledText(text: String, runs: List<StyleRun>): AnnotatedString {
     if (text.isEmpty()) return AnnotatedString("")
     return AnnotatedString.Builder(text).apply {
-        var start = 0
-        var current = styles.getOrNull(0) ?: CharacterStyle()
-        for (index in 1..text.length) {
-            val next = styles.getOrNull(index)
-            if (next != current) {
-                addStyle(current.toSpanStyle(), start, index)
-                start = index
-                if (next != null) current = next
-            }
+        runs.forEach { run ->
+            val start = run.start.coerceIn(0, text.length)
+            val end = run.end.coerceIn(start, text.length)
+            if (end > start) addStyle(run.style.toSpanStyle(), start, end)
         }
     }.toAnnotatedString()
 }
 
-private fun stylesFromSpans(
-    text: String,
-    spans: List<NoteSpan>,
-): List<CharacterStyle> {
-    val styles = MutableList(text.length) { CharacterStyle() }
-    spans.forEach { span ->
-        val start = span.start.coerceIn(0, text.length)
-        val end = span.end.coerceIn(start, text.length)
-        for (index in start until end) {
-            styles[index] = CharacterStyle(
-                bold = span.bold,
-                underline = span.underline,
-                strikethrough = span.strikethrough,
-                fontSizeSp = span.fontSizeSp.coerceIn(
-                    SMALL_NOTE_FONT_SIZE_SP,
-                    DISPLAY_NOTE_FONT_SIZE_SP,
-                ),
-            )
+private fun runsFromSpans(text: String, spans: List<NoteSpan>): List<StyleRun> {
+    if (text.isEmpty()) return emptyList()
+    if (spans.isEmpty()) return listOf(StyleRun(0, text.length, CharacterStyle()))
+
+    val boundaries = buildSet {
+        add(0)
+        add(text.length)
+        spans.forEach { span ->
+            add(span.start.coerceIn(0, text.length))
+            add(span.end.coerceIn(0, text.length))
         }
+    }.sorted()
+
+    val runs = boundaries.zipWithNext().mapNotNull { (start, end) ->
+        if (end <= start) return@mapNotNull null
+        val span = spans.lastOrNull { it.start <= start && it.end >= end }
+        StyleRun(
+            start = start,
+            end = end,
+            style = span?.toCharacterStyle() ?: CharacterStyle(),
+        )
     }
-    return styles
+    return normalizeRuns(runs, text.length)
 }
 
-private fun CharacterStyle.toNoteSpan(start: Int, end: Int) = NoteSpan(
-    start = start,
-    end = end,
+private fun normalizeRuns(runs: List<StyleRun>, textLength: Int): List<StyleRun> {
+    if (textLength == 0) return emptyList()
+    val sorted = runs
+        .mapNotNull { run ->
+            val start = run.start.coerceIn(0, textLength)
+            val end = run.end.coerceIn(start, textLength)
+            if (end > start) run.copy(start = start, end = end) else null
+        }
+        .sortedBy { it.start }
+
+    val filled = buildList {
+        var cursor = 0
+        sorted.forEach { run ->
+            if (run.start > cursor) add(StyleRun(cursor, run.start, CharacterStyle()))
+            val safeStart = maxOf(cursor, run.start)
+            if (run.end > safeStart) add(run.copy(start = safeStart))
+            cursor = maxOf(cursor, run.end)
+        }
+        if (cursor < textLength) add(StyleRun(cursor, textLength, CharacterStyle()))
+    }
+
+    return buildList {
+        filled.forEach { run ->
+            val previous = lastOrNull()
+            if (previous != null && previous.end == run.start && previous.style == run.style) {
+                removeAt(lastIndex)
+                add(previous.copy(end = run.end))
+            } else {
+                add(run)
+            }
+        }
+    }
+}
+
+private fun sliceRuns(
+    runs: List<StyleRun>,
+    start: Int,
+    end: Int,
+): List<StyleRun> {
+    if (end <= start) return emptyList()
+    return runs.mapNotNull { run ->
+        val clippedStart = maxOf(run.start, start)
+        val clippedEnd = minOf(run.end, end)
+        if (clippedEnd > clippedStart) {
+            run.copy(start = clippedStart, end = clippedEnd)
+        } else {
+            null
+        }
+    }
+}
+
+private fun NoteSpan.toCharacterStyle() = CharacterStyle(
     bold = bold,
     underline = underline,
     strikethrough = strikethrough,
-    fontSizeSp = fontSizeSp,
+    fontSizeSp = fontSizeSp.coerceIn(MIN_NOTE_FONT_SIZE_SP, MAX_NOTE_FONT_SIZE_SP),
 )
 
 private fun CharacterStyle.toSpanStyle(): SpanStyle {
@@ -245,6 +430,16 @@ private fun CharacterStyle.toSpanStyle(): SpanStyle {
         fontSize = fontSizeSp.sp,
     )
 }
+
+private fun TextFieldValue.asPlainValue() = TextFieldValue(
+    text = text,
+    selection = selection,
+    composition = composition,
+)
+
+private fun Char.isWordCharacter(): Boolean = isLetterOrDigit() || this == '-' || this == '’' || this == '\''
+
+private fun Char.isSentenceBoundary(): Boolean = this == '.' || this == '!' || this == '?' || this == '\n'
 
 private fun commonPrefixLength(old: String, new: String): Int {
     var index = 0
