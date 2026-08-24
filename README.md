@@ -1,6 +1,6 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes app for Android. The current build is **0.7.1-alpha18**.
+ProxyScroll is an offline-first notes app for Android. The current build is **0.7.2-alpha19**.
 
 ## Alpha features
 
@@ -16,6 +16,9 @@ ProxyScroll is an offline-first notes app for Android. The current build is **0.
 - Pin and delete notes
 - Liquid Glass material with translucent rims, refraction, and slow ambient light
 - Royal Graphite material generated procedurally from cold sheen, layers, and micro-grooves
+- OldScroll material with ivory paper, directional fibres, warm dust, worn edges, and angular geometry
+- One shared low-cost optical clock that synchronizes background light, surfaces, and the ProxyScroll brand
+- Material-specific ambient response: refractive caustics, wet graphite reflections, or diffuse parchment light
 - Smooth theme and typography transitions
 - Scroll-stable note cards with animated placement and physical press feedback
 - Persistent appearance and input settings
@@ -70,7 +73,7 @@ The UI depends on the domain repository contract rather than its SharedPreferenc
 
 ## Build
 
-GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.7.1-alpha18-update.apk` to update the normal package while keeping local notes. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.7.1-alpha18-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.7.1-alpha18-installers` artifact and support Android 8.0 or newer.
+GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.7.2-alpha19-update.apk` to update the normal package while keeping local notes. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.7.2-alpha19-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.7.2-alpha19-installers` artifact and support Android 8.0 or newer.
 
 Alpha APKs use a repository-local debug-only signing key so later Alpha builds can update in place without erasing local notes. This key must never be used for a production release.
 

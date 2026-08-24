@@ -2,7 +2,8 @@ package com.proxyscroll.app.domain
 
 enum class AppTheme(val storageKey: String) {
     LIQUID_GLASS("liquid_glass"),
-    ROYAL_GRAPHITE("royal_graphite");
+    ROYAL_GRAPHITE("royal_graphite"),
+    OLD_SCROLL("old_scroll");
 
     companion object {
         fun fromStorage(value: String?): AppTheme {
