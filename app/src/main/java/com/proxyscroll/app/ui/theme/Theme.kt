@@ -6,17 +6,18 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,10 +39,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -545,6 +548,8 @@ fun ProxySurface(
     shape: Shape? = null,
     role: ProxySurfaceRole = ProxySurfaceRole.CARD,
     strong: Boolean = false,
+    active: Boolean = false,
+    deformContent: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val style = LocalProxyVisualStyle.current
@@ -562,19 +567,37 @@ fun ProxySurface(
         animationSpec = tween(220),
         label = "surface-corner-${role.name.lowercase()}",
     ).value
-    val resolvedShape = shape ?: RoundedCornerShape(animatedCornerDp.dp)
     var materialPressed by remember { mutableStateOf(false) }
     var pressPosition by remember { mutableStateOf(Offset.Zero) }
     var surfaceSize by remember { mutableStateOf(IntSize.Zero) }
-    val pressAmount by animateFloatAsState(
+    val compression by animateFloatAsState(
         targetValue = if (materialPressed) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = if (materialPressed) 0.82f else 0.58f,
+            stiffness = if (materialPressed) 820f else 420f,
+        ),
+        label = "material-compression-${role.name.lowercase()}",
+    )
+    val clarity by animateFloatAsState(
+        targetValue = when {
+            materialPressed -> 1f
+            active -> 0.72f
+            else -> 0f
+        },
         animationSpec = tween(
-            durationMillis = if (materialPressed) 90 else 420,
+            durationMillis = if (materialPressed || active) 130 else 520,
             easing = FastOutSlowInEasing,
         ),
-        label = "stained-surface-press-${role.name.lowercase()}",
+        label = "material-clarity-${role.name.lowercase()}",
     )
     val depthFactor = stainSettings.depth.opticalFactor
+    val morphCornerDp = animatedCornerDp + compression * when (role) {
+        ProxySurfaceRole.BUTTON -> 4.8f
+        ProxySurfaceRole.INPUT -> 3.6f
+        ProxySurfaceRole.CARD -> 3.0f
+        ProxySurfaceRole.OVERLAY -> 2.2f
+    }
+    val resolvedShape = shape ?: RoundedCornerShape(morphCornerDp.dp)
     val materialFactor = if (style.theme == AppTheme.LIQUID_GLASS) {
         when (role) {
             ProxySurfaceRole.CARD -> 0.70f
@@ -590,8 +613,14 @@ fun ProxySurface(
             ProxySurfaceRole.OVERLAY -> 1.05f
         }
     }
+    val transmissionFactor = if (style.theme == AppTheme.LIQUID_GLASS) {
+        1f - clarity * 0.64f
+    } else {
+        1f - clarity * 0.34f
+    }
     fun scaled(color: Color, extra: Float = 1f) = color.copy(
-        alpha = (color.alpha * materialFactor * extra).coerceIn(0f, 1f),
+        alpha = (color.alpha * materialFactor * extra * transmissionFactor)
+            .coerceIn(0f, 1f),
     )
     val top = scaled(if (strong) style.strongTop else style.materialTop)
     val middle = scaled(style.materialMiddle, if (strong) 1.20f else 1f)
@@ -603,16 +632,36 @@ fun ProxySurface(
         ProxySurfaceRole.OVERLAY -> 0.32f
     }
     val themeStainFactor = if (style.theme == AppTheme.LIQUID_GLASS) 1f else 0.40f
-    val stainAlpha = stainSettings.intensity * roleStainFactor * themeStainFactor * depthFactor
-    val elevation = when {
+    val stainAlpha = stainSettings.intensity * roleStainFactor * themeStainFactor * depthFactor *
+        (1f + clarity * 0.62f)
+    val baseElevation = when {
         strong && style.theme == AppTheme.LIQUID_GLASS -> 8.dp
         style.theme == AppTheme.LIQUID_GLASS -> 5.dp
         strong -> 7.dp
         else -> 4.dp
     }
+    val elevation by animateDpAsState(
+        targetValue = baseElevation + (2.4f * clarity).dp,
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
+        label = "material-elevation-${role.name.lowercase()}",
+    )
+    val verticalCompression = when (role) {
+        ProxySurfaceRole.BUTTON -> 0.038f
+        ProxySurfaceRole.INPUT -> 0.024f
+        ProxySurfaceRole.CARD -> 0.018f
+        ProxySurfaceRole.OVERLAY -> 0.012f
+    }
 
     Box(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = if (deformContent) 1f + compression * 0.004f else 1f
+                scaleY = if (deformContent) {
+                    1f - compression * verticalCompression
+                } else {
+                    1f
+                }
+            }
             .shadow(
                 elevation = elevation,
                 shape = resolvedShape,
@@ -626,8 +675,21 @@ fun ProxySurface(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     pressPosition = down.position
                     materialPressed = true
-                    waitForUpOrCancellation()
-                    materialPressed = false
+                    try {
+                        var pointerPressed = true
+                        while (pointerPressed) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (change == null) {
+                                pointerPressed = false
+                            } else {
+                                pressPosition = change.position
+                                pointerPressed = change.pressed
+                            }
+                        }
+                    } finally {
+                        materialPressed = false
+                    }
                 }
             },
     ) {
@@ -647,10 +709,10 @@ fun ProxySurface(
                     } else {
                         0f
                     }
-                    rotationX = -normalizedY * 2.0f * pressAmount * depthFactor
-                    rotationY = normalizedX * 2.0f * pressAmount * depthFactor
-                    scaleX = 1f - 0.008f * pressAmount
-                    scaleY = 1f - 0.008f * pressAmount
+                    rotationX = -normalizedY * 2.35f * compression * depthFactor
+                    rotationY = normalizedX * 2.35f * compression * depthFactor
+                    scaleX = 1f + 0.012f * compression
+                    scaleY = 1f - 0.010f * compression
                 }
                 .background(
                     Brush.verticalGradient(
@@ -684,11 +746,28 @@ fun ProxySurface(
                 val lens = Brush.radialGradient(
                     colors = listOf(
                         palette.primary.copy(alpha = stainAlpha * 1.15f),
-                        Color.White.copy(alpha = 0.045f * depthFactor),
+                        Color.White.copy(alpha = (0.045f + clarity * 0.055f) * depthFactor),
                         Color.Transparent,
                     ),
                     center = Offset(size.width * 0.12f, size.height * 0.05f),
                     radius = size.width * 0.86f,
+                )
+                val touchCenter = if (surfaceSize.width > 0 && surfaceSize.height > 0) {
+                    Offset(
+                        x = pressPosition.x.coerceIn(0f, size.width),
+                        y = pressPosition.y.coerceIn(0f, size.height),
+                    )
+                } else {
+                    Offset(size.width * 0.22f, size.height * 0.16f)
+                }
+                val touchSpecular = Brush.radialGradient(
+                    colors = listOf(
+                        palette.caustic.copy(alpha = clarity * 0.30f * depthFactor),
+                        Color.White.copy(alpha = clarity * 0.10f),
+                        Color.Transparent,
+                    ),
+                    center = touchCenter,
+                    radius = maxOf(size.width, size.height) * 0.48f,
                 )
                 val lowerRefraction = Brush.verticalGradient(
                     colors = listOf(
@@ -698,17 +777,18 @@ fun ProxySurface(
                         palette.tertiary.copy(alpha = stainAlpha * 0.72f),
                     ),
                 )
+                val frostFactor = (1f - clarity * 0.88f).coerceIn(0.08f, 1f)
                 val safetyFrost = Brush.radialGradient(
                     colors = if (liquid) {
                         listOf(
-                            Color.White.copy(alpha = 0.075f * depthFactor),
-                            Color.White.copy(alpha = 0.025f),
+                            Color.White.copy(alpha = 0.085f * depthFactor * frostFactor),
+                            Color.White.copy(alpha = 0.030f * frostFactor),
                             Color.Transparent,
                         )
                     } else {
                         listOf(
-                            Color(0xFF182126).copy(alpha = 0.20f * depthFactor),
-                            Color(0xFF0A0F12).copy(alpha = 0.06f),
+                            Color(0xFF182126).copy(alpha = 0.20f * depthFactor * frostFactor),
+                            Color(0xFF0A0F12).copy(alpha = 0.06f * frostFactor),
                             Color.Transparent,
                         )
                     },
@@ -720,9 +800,23 @@ fun ProxySurface(
                     drawRect(brush = lens)
                     drawRect(brush = lowerRefraction)
                     drawRect(brush = safetyFrost)
+                    if (clarity > 0.01f) {
+                        drawRect(brush = touchSpecular)
+                    }
+                    drawRoundRect(
+                        color = if (liquid) {
+                            Color.White.copy(alpha = 0.14f + clarity * 0.22f)
+                        } else {
+                            palette.caustic.copy(alpha = 0.08f + clarity * 0.12f)
+                        },
+                        cornerRadius = CornerRadius(morphCornerDp.dp.toPx()),
+                        style = Stroke(width = (0.65f + clarity * 0.85f).dp.toPx()),
+                    )
                     if (!liquid) {
                         drawLine(
-                            color = palette.caustic.copy(alpha = 0.15f * depthFactor),
+                            color = palette.caustic.copy(
+                                alpha = (0.15f + clarity * 0.18f) * depthFactor,
+                            ),
                             start = Offset(size.width * 0.10f, 1.1f),
                             end = Offset(size.width * 0.58f, 1.1f),
                             strokeWidth = 1.0f,
@@ -735,7 +829,9 @@ fun ProxySurface(
                         )
                     } else {
                         drawLine(
-                            color = palette.caustic.copy(alpha = 0.50f * depthFactor),
+                            color = palette.caustic.copy(
+                                alpha = (0.50f + clarity * 0.28f) * depthFactor,
+                            ),
                             start = Offset(size.width * 0.18f, 1.2f),
                             end = Offset(size.width * 0.72f, 1.2f),
                             strokeWidth = 1.1f,
@@ -750,8 +846,12 @@ fun ProxySurface(
                             listOf(
                                 palette.caustic.copy(alpha = 0.82f),
                                 style.rimLight,
-                                palette.secondary.copy(alpha = 0.62f * depthFactor),
-                                palette.tertiary.copy(alpha = 0.38f * depthFactor),
+                                palette.secondary.copy(
+                                    alpha = (0.62f + clarity * 0.20f) * depthFactor,
+                                ),
+                                palette.tertiary.copy(
+                                    alpha = (0.38f + clarity * 0.22f) * depthFactor,
+                                ),
                                 style.rimShade,
                             )
                         } else {

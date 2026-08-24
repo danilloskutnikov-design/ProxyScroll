@@ -325,7 +325,7 @@ fun ProxyScrollApp(
 @Composable
 private fun Modifier.animatedClick(
     onClick: () -> Unit,
-    pressedScale: Float = 0.965f,
+    pressedScale: Float = 0.975f,
     enabled: Boolean = true,
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
@@ -361,6 +361,8 @@ private fun NotesScreen(
     onTogglePinned: (Note) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    val searchInteractionSource = remember { MutableInteractionSource() }
+    val searchFocused by searchInteractionSource.collectIsFocusedAsState()
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -376,7 +378,7 @@ private fun NotesScreen(
                         modifier = Modifier
                             .padding(end = 12.dp)
                             .size(44.dp)
-                            .animatedClick(onClick = onOpenSettings, pressedScale = 0.90f),
+                            .animatedClick(onClick = onOpenSettings, pressedScale = 0.96f),
                         role = ProxySurfaceRole.BUTTON,
                         strong = true,
                     ) {
@@ -399,7 +401,7 @@ private fun NotesScreen(
             ProxySurface(
                 modifier = Modifier
                     .size(60.dp)
-                    .animatedClick(onClick = onCreate, pressedScale = 0.90f),
+                    .animatedClick(onClick = onCreate, pressedScale = 0.96f),
                 role = ProxySurfaceRole.BUTTON,
                 strong = true,
             ) {
@@ -445,6 +447,7 @@ private fun NotesScreen(
                     .fillMaxWidth()
                     .animateContentSize(animationSpec = tween(320)),
                 role = ProxySurfaceRole.INPUT,
+                active = searchFocused || state.query.isNotEmpty(),
             ) {
                 val searchShape = RoundedCornerShape(
                     LocalProxyShape.current.resolvedInputCornerDp.dp,
@@ -453,6 +456,7 @@ private fun NotesScreen(
                     value = state.query,
                     onValueChange = onQueryChange,
                     modifier = Modifier.fillMaxWidth(),
+                    interactionSource = searchInteractionSource,
                     singleLine = true,
                     shape = searchShape,
                     placeholder = { Text("Найти заметку") },
@@ -568,7 +572,7 @@ private fun NoteCard(
     ProxySurface(
         modifier = Modifier
             .fillMaxWidth()
-            .animatedClick(onClick = onClick, pressedScale = 0.982f),
+            .animatedClick(onClick = onClick, pressedScale = 0.99f),
         strong = note.isPinned,
         role = ProxySurfaceRole.CARD,
     ) {
@@ -778,7 +782,7 @@ private fun NoteEditorScreen(
                         modifier = Modifier
                             .padding(end = 8.dp)
                             .size(44.dp)
-                            .animatedClick(onClick = ::finishEditing, pressedScale = 0.90f),
+                            .animatedClick(onClick = ::finishEditing, pressedScale = 0.96f),
                         role = ProxySurfaceRole.BUTTON,
                         strong = true,
                     ) {
@@ -863,23 +867,19 @@ private fun NoteEditorScreen(
             val glowColor = MaterialTheme.colorScheme.primary
             val editorCornerDp = LocalProxyShape.current.resolvedInputCornerDp
             val editorShape = RoundedCornerShape(editorCornerDp.dp)
-            Box(
+            ProxySurface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .clip(editorShape)
-                    .background(
-                        MaterialTheme.colorScheme.surface.copy(
-                            alpha = if (bodyFocused) 0.075f else 0.025f,
-                        ),
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(
-                            alpha = 0.10f + focusGlow * 0.24f,
-                        ),
-                        shape = editorShape,
-                    )
+                    .weight(1f),
+                shape = editorShape,
+                role = ProxySurfaceRole.INPUT,
+                strong = bodyFocused,
+                active = bodyFocused,
+                deformContent = false,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
                     .drawBehind {
                         if (focusGlow > 0f) {
                             drawRoundRect(
@@ -888,8 +888,8 @@ private fun NoteEditorScreen(
                             )
                         }
                     },
-            ) {
-                BasicTextField(
+                ) {
+                    BasicTextField(
                     value = richText.value,
                     onValueChange = {
                         richText.onValueChange(it)
@@ -922,36 +922,37 @@ private fun NoteEditorScreen(
                             innerTextField()
                         }
                     },
-                )
-                val layoutResult = bodyTextLayout
-                if (
-                    richText.hasSelection &&
-                    richText.value.text.isNotEmpty() &&
-                    layoutResult != null
-                ) {
-                    val density = LocalDensity.current
-                    val selectionAnchor = minOf(
-                        richText.value.selection.start,
-                        richText.value.selection.end,
-                    ).coerceIn(0, richText.value.text.lastIndex)
-                    val selectionBox = layoutResult.getBoundingBox(selectionAnchor)
-                    val lensY = with(density) {
-                        (selectionBox.top.roundToInt() - 48.dp.roundToPx())
-                            .coerceAtLeast(6.dp.roundToPx())
-                    }
-                    InlineSelectionLens(
-                        richText = richText,
-                        onFormatChanged = {
-                            hasChanges = true
-                            saveState = EditorSaveState.EDITING
-                        },
-                        modifier = Modifier.offset {
-                            IntOffset(
-                                x = with(density) { 10.dp.roundToPx() },
-                                y = lensY,
-                            )
-                        },
                     )
+                    val layoutResult = bodyTextLayout
+                    if (
+                        richText.hasSelection &&
+                        richText.value.text.isNotEmpty() &&
+                        layoutResult != null
+                    ) {
+                        val density = LocalDensity.current
+                        val selectionAnchor = minOf(
+                            richText.value.selection.start,
+                            richText.value.selection.end,
+                        ).coerceIn(0, richText.value.text.lastIndex)
+                        val selectionBox = layoutResult.getBoundingBox(selectionAnchor)
+                        val lensY = with(density) {
+                            (selectionBox.top.roundToInt() - 48.dp.roundToPx())
+                                .coerceAtLeast(6.dp.roundToPx())
+                        }
+                        InlineSelectionLens(
+                            richText = richText,
+                            onFormatChanged = {
+                                hasChanges = true
+                                saveState = EditorSaveState.EDITING
+                            },
+                            modifier = Modifier.offset {
+                                IntOffset(
+                                    x = with(density) { 10.dp.roundToPx() },
+                                    y = lensY,
+                                )
+                            },
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -993,6 +994,7 @@ private fun InlineSelectionLens(
         modifier = modifier,
         role = ProxySurfaceRole.OVERLAY,
         strong = true,
+        active = true,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
@@ -1054,6 +1056,7 @@ private fun FormattingToolbar(
         modifier = modifier.fillMaxWidth(),
         role = ProxySurfaceRole.OVERLAY,
         strong = true,
+        active = richText.hasSelection,
     ) {
         Column {
             AnimatedVisibility(
@@ -1370,6 +1373,7 @@ private fun SettingsSheet(
             ),
             role = ProxySurfaceRole.OVERLAY,
             strong = true,
+            active = true,
         ) {
             Column(
                 modifier = Modifier
@@ -1695,7 +1699,7 @@ private fun SettingsSheet(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "ProxyScroll · 0.5.3-alpha09",
+                    text = "ProxyScroll · 0.5.4-alpha10",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1882,7 +1886,14 @@ private fun ShapeLivePreview(shapeSettings: InterfaceShape) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(10.dp))
+            Text(
+                text = "Нажмите и удерживайте: материал сожмётся и станет прозрачнее",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(7.dp))
             ProxySurface(
                 modifier = Modifier
                     .fillMaxWidth()
