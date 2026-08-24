@@ -57,7 +57,7 @@ ProxyScroll is an offline-first notes app for Android. The current build is **0.
 - Keyboard focus mode with a larger, higher-contrast writing plane and reduced chrome
 - Scroll-safe card material without per-item viewport re-entry animations or pointer optics
 - 0.7 Material Motion runtime that quiets ambient optics during active scrolling and restores them softly at rest
-- Explicit V1, V2, and V3 APK signatures verified by Android build tools in CI
+- Explicit V2 and V3 APK signatures verified by Android build tools in CI for the Android 8+ minimum target
 - Sidecar installer for signature-conflicted early Alpha installations, without deleting the existing app
 
 ## Storage and compatibility
