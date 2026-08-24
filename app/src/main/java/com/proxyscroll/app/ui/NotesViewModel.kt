@@ -42,9 +42,10 @@ class NotesViewModel(
     ): Note? {
         if (existing == null && title.isBlank() && body.isBlank()) return null
         val now = System.currentTimeMillis()
+        val resolvedTitle = title.trimEnd().ifBlank { titleFromBody(body) }
         val saved = Note(
             id = existing?.id ?: UUID.randomUUID().toString(),
-            title = title.trimEnd(),
+            title = resolvedTitle,
             body = body,
             spans = spans,
             isPinned = existing?.isPinned ?: false,
@@ -79,6 +80,15 @@ class NotesViewModel(
         if (query.isBlank()) return true
         return title.contains(query, ignoreCase = true) ||
             body.contains(query, ignoreCase = true)
+    }
+
+    private fun titleFromBody(body: String): String {
+        return body
+            .trim()
+            .split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+            .take(3)
+            .joinToString(" ")
     }
 
     private companion object {

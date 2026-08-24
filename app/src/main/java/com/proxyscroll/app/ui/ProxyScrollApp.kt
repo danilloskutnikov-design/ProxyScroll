@@ -3,19 +3,29 @@ package com.proxyscroll.app.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,7 +41,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -79,11 +89,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
@@ -178,6 +191,33 @@ fun ProxyScrollApp(
     }
 }
 
+@Composable
+private fun Modifier.animatedClick(
+    onClick: () -> Unit,
+    pressedScale: Float = 0.965f,
+): Modifier {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium,
+        ),
+        label = "physical-press",
+    )
+    return this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick,
+        )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NotesScreen(
@@ -203,7 +243,7 @@ private fun NotesScreen(
                         modifier = Modifier
                             .padding(end = 12.dp)
                             .size(44.dp)
-                            .clickable(onClick = onOpenSettings),
+                            .animatedClick(onClick = onOpenSettings, pressedScale = 0.90f),
                         shape = CircleShape,
                         strong = true,
                     ) {
@@ -226,7 +266,7 @@ private fun NotesScreen(
             ProxySurface(
                 modifier = Modifier
                     .size(64.dp)
-                    .clickable(onClick = onCreate),
+                    .animatedClick(onClick = onCreate, pressedScale = 0.90f),
                 shape = RoundedCornerShape(25.dp),
                 strong = true,
             ) {
@@ -252,14 +292,25 @@ private fun NotesScreen(
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onBackground,
             )
-            Text(
-                text = "${state.notes.size} в текущем списке",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            AnimatedContent(
+                targetState = state.notes.size,
+                transitionSpec = {
+                    (fadeIn(tween(260)) + slideInVertically { it / 2 }) togetherWith
+                        (fadeOut(tween(180)) + slideOutVertically { -it / 2 })
+                },
+                label = "note-count",
+            ) { count ->
+                Text(
+                    text = "$count в текущем списке",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(16.dp))
             ProxySurface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .animateContentSize(animationSpec = tween(320)),
                 shape = RoundedCornerShape(24.dp),
             ) {
                 OutlinedTextField(
@@ -299,12 +350,33 @@ private fun NotesScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    items(state.notes, key = { it.id }) { note ->
-                        NoteCard(
-                            note = note,
-                            onClick = { onEdit(note) },
-                            onTogglePinned = { onTogglePinned(note) },
-                        )
+                    itemsIndexed(
+                        items = state.notes,
+                        key = { _, note -> note.id },
+                    ) { index, note ->
+                        var visible by remember(note.id) { mutableStateOf(false) }
+                        LaunchedEffect(note.id) {
+                            delay((index.coerceAtMost(8) * 48L) + 30L)
+                            visible = true
+                        }
+                        AnimatedVisibility(
+                            visible = visible,
+                            modifier = Modifier.animateItem(),
+                            enter = fadeIn(tween(420)) +
+                                slideInVertically(tween(480, easing = FastOutSlowInEasing)) {
+                                    it / 3
+                                } +
+                                scaleIn(tween(460), initialScale = 0.975f),
+                            exit = fadeOut(tween(220)) +
+                                slideOutVertically(tween(260)) { -it / 5 } +
+                                scaleOut(tween(220), targetScale = 0.98f),
+                        ) {
+                            NoteCard(
+                                note = note,
+                                onClick = { onEdit(note) },
+                                onTogglePinned = { onTogglePinned(note) },
+                            )
+                        }
                     }
                     item { Spacer(Modifier.height(96.dp)) }
                 }
@@ -350,7 +422,7 @@ private fun NoteCard(
     ProxySurface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .animatedClick(onClick = onClick, pressedScale = 0.982f),
         strong = note.isPinned,
     ) {
         Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
@@ -421,6 +493,15 @@ private fun NoteEditorScreen(
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var inputPulse by remember { mutableIntStateOf(0) }
     val glow = remember { Animatable(0f) }
+    val bodyFocusRequester = remember(note?.id) { FocusRequester() }
+    val automaticTitle = remember(richText.value.text) {
+        richText.value.text
+            .trim()
+            .split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+            .take(3)
+            .joinToString(" ")
+    }
 
     fun saveNow() {
         if (!hasChanges) return
@@ -441,6 +522,11 @@ private fun NoteEditorScreen(
     }
 
     BackHandler(onBack = ::finishEditing)
+
+    LaunchedEffect(note?.id) {
+        delay(260)
+        bodyFocusRequester.requestFocus()
+    }
 
     LaunchedEffect(title, richText.revision) {
         if (!hasChanges) return@LaunchedEffect
@@ -464,6 +550,9 @@ private fun NoteEditorScreen(
     }
 
     Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
         containerColor = Color.Transparent,
         topBar = {
             CenterAlignedTopAppBar(
@@ -520,7 +609,6 @@ private fun NoteEditorScreen(
             FormattingToolbar(
                 richText = richText,
                 modifier = Modifier
-                    .imePadding()
                     .navigationBarsPadding()
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 onFormatChanged = {
@@ -535,7 +623,6 @@ private fun NoteEditorScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(contentPadding)
-                .imePadding()
                 .padding(horizontal = 16.dp),
         ) {
             BasicTextField(
@@ -560,7 +647,7 @@ private fun NoteEditorScreen(
                     Box {
                         if (title.isEmpty()) {
                             Text(
-                                text = "Название",
+                                text = "Название — необязательно",
                                 style = MaterialTheme.typography.headlineMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
                             )
@@ -569,6 +656,18 @@ private fun NoteEditorScreen(
                     }
                 },
             )
+            AnimatedVisibility(
+                visible = title.isBlank() && automaticTitle.isNotBlank(),
+                enter = fadeIn(tween(240)) + slideInVertically(tween(280)) { -it / 3 },
+                exit = fadeOut(tween(160)) + slideOutVertically(tween(200)) { -it / 3 },
+            ) {
+                Text(
+                    text = "Название: $automaticTitle",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 6.dp, bottom = 10.dp),
+                )
+            }
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f),
             )
@@ -587,6 +686,7 @@ private fun NoteEditorScreen(
                         }
                     },
                 shape = RoundedCornerShape(30.dp),
+                strong = true,
             ) {
                 BasicTextField(
                     value = richText.value,
@@ -598,6 +698,7 @@ private fun NoteEditorScreen(
                     },
                     modifier = Modifier
                         .fillMaxSize()
+                        .focusRequester(bodyFocusRequester)
                         .padding(horizontal = 20.dp, vertical = 18.dp),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = MaterialTheme.colorScheme.onSurface,
@@ -724,7 +825,7 @@ private fun FormatButton(
                     Color.Transparent
                 },
             )
-            .clickable(onClick = onClick),
+            .animatedClick(onClick = onClick, pressedScale = 0.88f),
         contentAlignment = Alignment.Center,
     ) {
         content()
@@ -742,7 +843,7 @@ private fun FontSizeButton(
             modifier = Modifier
                 .height(44.dp)
                 .clip(RoundedCornerShape(18.dp))
-                .clickable { expanded = true }
+                .animatedClick(onClick = { expanded = true }, pressedScale = 0.94f)
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -861,7 +962,7 @@ private fun SettingsSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f))
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "ProxyScroll 0.3.0-alpha03",
+                text = "ProxyScroll 0.3.1-alpha04",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -879,7 +980,7 @@ private fun MotionOption(
     ProxySurface(
         modifier = modifier
             .height(48.dp)
-            .clickable(onClick = onClick),
+            .animatedClick(onClick = onClick, pressedScale = 0.95f),
         shape = RoundedCornerShape(18.dp),
         strong = selected,
     ) {
@@ -913,7 +1014,7 @@ private fun ThemeOption(
     ProxySurface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .animatedClick(onClick = onClick, pressedScale = 0.985f),
         strong = isSelected,
     ) {
         Row(

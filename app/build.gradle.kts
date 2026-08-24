@@ -12,8 +12,8 @@ android {
         applicationId = "com.proxyscroll.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0-alpha03"
+        versionCode = 4
+        versionName = "0.3.1-alpha04"
     }
 
     signingConfigs {
