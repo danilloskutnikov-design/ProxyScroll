@@ -41,12 +41,12 @@ jobs:
         run: gradle --no-daemon :app:assembleDebug
 
       - name: Name Alpha APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk ProxyScroll-0.2.0-alpha02-debug.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk ProxyScroll-0.3.0-alpha03-debug.apk
 
       - name: Upload Alpha APK
         uses: actions/upload-artifact@v4
         with:
-          name: ProxyScroll-0.2.0-alpha02-debug
-          path: ProxyScroll-0.2.0-alpha02-debug.apk
+          name: ProxyScroll-0.3.0-alpha03-debug
+          path: ProxyScroll-0.3.0-alpha03-debug.apk
           if-no-files-found: error
           retention-days: 30

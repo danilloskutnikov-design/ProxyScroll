@@ -1,11 +1,22 @@
 package com.proxyscroll.app.ui
 
-import androidx.compose.animation.animateContentSize
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,20 +29,34 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatSize
+import androidx.compose.material.icons.filled.FormatStrikethrough
+import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,29 +70,41 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.proxyscroll.app.R
 import com.proxyscroll.app.domain.AppTheme
+import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.Note
+import com.proxyscroll.app.domain.NoteSpan
+import com.proxyscroll.app.ui.editor.DISPLAY_NOTE_FONT_SIZE_SP
+import com.proxyscroll.app.ui.editor.LARGE_NOTE_FONT_SIZE_SP
+import com.proxyscroll.app.ui.editor.RichTextState
+import com.proxyscroll.app.ui.editor.SMALL_NOTE_FONT_SIZE_SP
+import com.proxyscroll.app.ui.editor.annotatedText
 import com.proxyscroll.app.ui.theme.LocalProxyVisualStyle
 import com.proxyscroll.app.ui.theme.ProxyScrollTheme
 import com.proxyscroll.app.ui.theme.ProxySurface
 import com.proxyscroll.app.ui.theme.ProxyThemeBackground
+import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 
@@ -76,10 +113,12 @@ fun ProxyScrollApp(
     viewModel: NotesViewModel,
     selectedTheme: AppTheme,
     onThemeSelected: (AppTheme) -> Unit,
+    inputMotion: InputMotion,
+    onInputMotionSelected: (InputMotion) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    var noteBeingEdited by remember { mutableStateOf<Note?>(null) }
-    var isCreating by remember { mutableStateOf(false) }
+    var editorOpen by remember { mutableStateOf(false) }
+    var editorNote by remember { mutableStateOf<Note?>(null) }
     var showSettings by remember { mutableStateOf(false) }
 
     ProxyScrollTheme(selectedTheme = selectedTheme) {
@@ -88,40 +127,51 @@ fun ProxyScrollApp(
                 selectedTheme = selectedTheme,
                 modifier = Modifier.fillMaxSize(),
             )
-            NotesScreen(
-                state = state,
-                onQueryChange = viewModel::setQuery,
-                onCreate = { isCreating = true },
-                onEdit = { noteBeingEdited = it },
-                onTogglePinned = viewModel::togglePinned,
-                onOpenSettings = { showSettings = true },
-            )
-
-            if (isCreating || noteBeingEdited != null) {
-                NoteEditorSheet(
-                    note = noteBeingEdited,
-                    onDismiss = {
-                        isCreating = false
-                        noteBeingEdited = null
-                    },
-                    onSave = { title, body ->
-                        viewModel.save(noteBeingEdited, title, body)
-                        isCreating = false
-                        noteBeingEdited = null
-                    },
-                    onDelete = noteBeingEdited?.let { note ->
-                        {
-                            viewModel.delete(note)
-                            noteBeingEdited = null
-                        }
-                    },
-                )
+            AnimatedContent(
+                targetState = editorOpen,
+                transitionSpec = {
+                    if (targetState) {
+                        (fadeIn(tween(300)) + slideInHorizontally(tween(380)) { it / 8 }) togetherWith
+                            (fadeOut(tween(220)) + slideOutHorizontally(tween(300)) { -it / 12 })
+                    } else {
+                        (fadeIn(tween(300)) + slideInHorizontally(tween(360)) { -it / 10 }) togetherWith
+                            (fadeOut(tween(200)) + slideOutHorizontally(tween(300)) { it / 9 })
+                    }
+                },
+                label = "notes-editor-transition",
+            ) { isEditing ->
+                if (isEditing) {
+                    NoteEditorScreen(
+                        note = editorNote,
+                        inputMotion = inputMotion,
+                        onSave = viewModel::save,
+                        onDelete = viewModel::delete,
+                        onClose = { editorOpen = false },
+                    )
+                } else {
+                    NotesScreen(
+                        state = state,
+                        onQueryChange = viewModel::setQuery,
+                        onCreate = {
+                            editorNote = null
+                            editorOpen = true
+                        },
+                        onEdit = {
+                            editorNote = it
+                            editorOpen = true
+                        },
+                        onTogglePinned = viewModel::togglePinned,
+                        onOpenSettings = { showSettings = true },
+                    )
+                }
             }
 
-            if (showSettings) {
+            if (showSettings && !editorOpen) {
                 SettingsSheet(
                     selectedTheme = selectedTheme,
                     onThemeSelected = onThemeSelected,
+                    inputMotion = inputMotion,
+                    onInputMotionSelected = onInputMotionSelected,
                     onDismiss = { showSettings = false },
                 )
             }
@@ -158,10 +208,7 @@ private fun NotesScreen(
                         shape = CircleShape,
                         strong = true,
                     ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
                                 contentDescription = "Настройки",
@@ -179,20 +226,17 @@ private fun NotesScreen(
         floatingActionButton = {
             ProxySurface(
                 modifier = Modifier
-                    .size(62.dp)
+                    .size(64.dp)
                     .clickable(onClick = onCreate),
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(25.dp),
                 strong = true,
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Новая заметка",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(29.dp),
+                        modifier = Modifier.size(30.dp),
                     )
                 }
             }
@@ -207,36 +251,30 @@ private fun NotesScreen(
             Text(
                 text = "Заметки",
                 style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground,
             )
             Text(
-                text = state.notes.size.toString() + " в текущем списке",
+                text = "${state.notes.size} в текущем списке",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
             ProxySurface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(24.dp),
             ) {
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = onQueryChange,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = RoundedCornerShape(22.dp),
-                    label = { Text("Поиск по заметкам") },
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = null)
-                    },
+                    shape = RoundedCornerShape(24.dp),
+                    placeholder = { Text("Найти заметку") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         if (state.query.isNotEmpty()) {
                             IconButton(onClick = { onQueryChange("") }) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Очистить поиск",
-                                )
+                                Icon(Icons.Default.Close, contentDescription = "Очистить поиск")
                             }
                         }
                     },
@@ -262,19 +300,14 @@ private fun NotesScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    items(
-                        items = state.notes,
-                        key = { it.id },
-                    ) { note ->
+                    items(state.notes, key = { it.id }) { note ->
                         NoteCard(
                             note = note,
                             onClick = { onEdit(note) },
                             onTogglePinned = { onTogglePinned(note) },
                         )
                     }
-                    item {
-                        Spacer(Modifier.height(96.dp))
-                    }
+                    item { Spacer(Modifier.height(96.dp)) }
                 }
             }
         }
@@ -286,33 +319,25 @@ private fun EmptyNotes(
     isSearching: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center,
-    ) {
-        ProxySurface(
-            modifier = Modifier.fillMaxWidth(),
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 30.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = if (isSearching) "Ничего не найдено" else "Заметок пока нет",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = if (isSearching) {
-                        "Попробуйте изменить поисковый запрос"
-                    } else {
-                        "Нажмите +, чтобы создать первую заметку"
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = if (isSearching) "Ничего не найдено" else "Здесь пока тихо",
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = if (isSearching) {
+                    "Попробуйте изменить запрос"
+                } else {
+                    "Нажмите + и начните первую заметку"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -326,13 +351,10 @@ private fun NoteCard(
     ProxySurface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .animateContentSize(),
+            .clickable(onClick = onClick),
         strong = note.isPinned,
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-        ) {
+        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -340,22 +362,14 @@ private fun NoteCard(
                 Text(
                     text = note.title.ifBlank { "Без названия" },
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(
-                    onClick = onTogglePinned,
-                    modifier = Modifier.size(40.dp),
-                ) {
+                IconButton(onClick = onTogglePinned, modifier = Modifier.size(40.dp)) {
                     Icon(
                         imageVector = Icons.Default.PushPin,
-                        contentDescription = if (note.isPinned) {
-                            "Открепить заметку"
-                        } else {
-                            "Закрепить заметку"
-                        },
+                        contentDescription = if (note.isPinned) "Открепить" else "Закрепить",
                         tint = if (note.isPinned) {
                             MaterialTheme.colorScheme.primary
                         } else {
@@ -367,14 +381,14 @@ private fun NoteCard(
             if (note.body.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = note.body,
+                    text = annotatedText(note.body, note.spans),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 5,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(13.dp))
             Text(
                 text = DateFormat.getDateTimeInstance(
                     DateFormat.MEDIUM,
@@ -387,61 +401,504 @@ private fun NoteCard(
     }
 }
 
+private enum class EditorSaveState { CLEAN, EDITING, SAVED }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NoteEditorScreen(
+    note: Note?,
+    inputMotion: InputMotion,
+    onSave: (Note?, String, String, List<NoteSpan>) -> Note?,
+    onDelete: (Note) -> Unit,
+    onClose: () -> Unit,
+) {
+    var savedNote by remember(note?.id) { mutableStateOf(note) }
+    var title by remember(note?.id) { mutableStateOf(note?.title.orEmpty()) }
+    val richText = remember(note?.id) {
+        RichTextState(note?.body.orEmpty(), note?.spans.orEmpty())
+    }
+    var hasChanges by remember(note?.id) { mutableStateOf(false) }
+    var saveState by remember(note?.id) { mutableStateOf(EditorSaveState.CLEAN) }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var inputPulse by remember { mutableIntStateOf(0) }
+    val glow = remember { Animatable(0f) }
+
+    fun saveNow() {
+        if (!hasChanges) return
+        val result = onSave(
+            savedNote,
+            title,
+            richText.value.text,
+            richText.toSpans(),
+        )
+        if (result != null) savedNote = result
+        hasChanges = false
+        saveState = if (result == null) EditorSaveState.CLEAN else EditorSaveState.SAVED
+    }
+
+    fun finishEditing() {
+        saveNow()
+        onClose()
+    }
+
+    BackHandler(onBack = ::finishEditing)
+
+    LaunchedEffect(title, richText.revision) {
+        if (!hasChanges) return@LaunchedEffect
+        delay(inputMotion.autosaveDelayMillis)
+        saveNow()
+    }
+
+    LaunchedEffect(inputPulse, inputMotion) {
+        if (inputMotion.pulseMillis == 0 || inputPulse == 0) {
+            glow.snapTo(0f)
+        } else {
+            glow.snapTo(if (inputMotion == InputMotion.FLOWING) 1f else 0.58f)
+            glow.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = inputMotion.pulseMillis,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+        }
+    }
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = if (savedNote == null) "Новая заметка" else "Редактор",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        AnimatedContent(
+                            targetState = saveState,
+                            label = "save-state",
+                        ) { state ->
+                            Text(
+                                text = when (state) {
+                                    EditorSaveState.CLEAN -> "Локально"
+                                    EditorSaveState.EDITING -> "Сохраняю…"
+                                    EditorSaveState.SAVED -> "Сохранено"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = ::finishEditing) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+                    }
+                },
+                actions = {
+                    AnimatedVisibility(visible = savedNote != null) {
+                        IconButton(onClick = { showDeleteConfirmation = true }) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Удалить",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    IconButton(onClick = ::finishEditing) {
+                        Icon(Icons.Default.Check, contentDescription = "Готово")
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
+            )
+        },
+        bottomBar = {
+            FormattingToolbar(
+                richText = richText,
+                modifier = Modifier
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                onFormatChanged = {
+                    hasChanges = true
+                    saveState = EditorSaveState.EDITING
+                    inputPulse++
+                },
+            )
+        },
+    ) { contentPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding)
+                .imePadding()
+                .padding(horizontal = 16.dp),
+        ) {
+            BasicTextField(
+                value = title,
+                onValueChange = {
+                    title = it
+                    hasChanges = true
+                    saveState = EditorSaveState.EDITING
+                    inputPulse++
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 14.dp),
+                textStyle = MaterialTheme.typography.headlineMedium.copy(
+                    color = MaterialTheme.colorScheme.onBackground,
+                ),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (title.isEmpty()) {
+                            Text(
+                                text = "Название",
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
+            )
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f),
+            )
+            Spacer(Modifier.height(12.dp))
+            val glowColor = MaterialTheme.colorScheme.primary
+            ProxySurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .drawBehind {
+                        if (glow.value > 0f) {
+                            drawRoundRect(
+                                color = glowColor.copy(alpha = glow.value * 0.16f),
+                                cornerRadius = CornerRadius(32.dp.toPx()),
+                            )
+                        }
+                    },
+                shape = RoundedCornerShape(30.dp),
+            ) {
+                BasicTextField(
+                    value = richText.value,
+                    onValueChange = {
+                        richText.onValueChange(it)
+                        hasChanges = true
+                        saveState = EditorSaveState.EDITING
+                        inputPulse++
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { innerTextField ->
+                        Box(Modifier.fillMaxSize()) {
+                            if (richText.value.text.isEmpty()) {
+                                Text(
+                                    text = "Начните писать…",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text("Удалить заметку?") },
+            text = { Text("Это действие нельзя отменить.") },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) {
+                    Text("Отмена")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        savedNote?.let(onDelete)
+                        showDeleteConfirmation = false
+                        onClose()
+                    },
+                ) {
+                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun FormattingToolbar(
+    richText: RichTextState,
+    modifier: Modifier = Modifier,
+    onFormatChanged: () -> Unit,
+) {
+    ProxySurface(modifier = modifier.fillMaxWidth(), strong = true) {
+        Row(
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FormatButton(
+                selected = richText.boldActive,
+                onClick = {
+                    richText.toggleBold()
+                    onFormatChanged()
+                },
+            ) {
+                Icon(Icons.Default.FormatBold, contentDescription = "Жирный")
+            }
+            FormatButton(
+                selected = richText.underlineActive,
+                onClick = {
+                    richText.toggleUnderline()
+                    onFormatChanged()
+                },
+            ) {
+                Icon(Icons.Default.FormatUnderlined, contentDescription = "Подчёркнутый")
+            }
+            FormatButton(
+                selected = richText.strikethroughActive,
+                onClick = {
+                    richText.toggleStrikethrough()
+                    onFormatChanged()
+                },
+            ) {
+                Icon(Icons.Default.FormatStrikethrough, contentDescription = "Зачёркнутый")
+            }
+            Box(
+                modifier = Modifier
+                    .height(28.dp)
+                    .width(1.dp)
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+            )
+            FontSizeButton(
+                activeSize = richText.activeFontSizeSp,
+                onSizeSelected = {
+                    richText.setFontSize(it)
+                    onFormatChanged()
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun FormatButton(
+    selected: Boolean,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
+                } else {
+                    Color.Transparent
+                },
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun FontSizeButton(
+    activeSize: Int,
+    onSizeSelected: (Int) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .height(44.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .clickable { expanded = true }
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.FormatSize, contentDescription = null)
+            Spacer(Modifier.width(4.dp))
+            Text("$activeSize", fontSize = 13.sp)
+            Icon(Icons.Default.ArrowDropDown, contentDescription = "Размер текста")
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            listOf(
+                SMALL_NOTE_FONT_SIZE_SP to "Мелкий",
+                19 to "Обычный",
+                LARGE_NOTE_FONT_SIZE_SP to "Крупный",
+                DISPLAY_NOTE_FONT_SIZE_SP to "Заголовок",
+            ).forEach { (size, label) ->
+                DropdownMenuItem(
+                    text = { Text("$label · $size") },
+                    leadingIcon = {
+                        if (activeSize == size) {
+                            Icon(Icons.Default.Check, contentDescription = null)
+                        }
+                    },
+                    onClick = {
+                        onSizeSelected(size)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsSheet(
     selectedTheme: AppTheme,
     onThemeSelected: (AppTheme) -> Unit,
+    inputMotion: InputMotion,
+    onInputMotionSelected: (InputMotion) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val style = LocalProxyVisualStyle.current
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
         scrimColor = style.scrim,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp),
         ) {
-            Text(
-                text = "Настройки",
-                style = MaterialTheme.typography.headlineMedium,
-            )
+            Text("Настройки", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "Внешний вид ProxyScroll",
+                text = "Материал интерфейса",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(18.dp))
             ThemeOption(
                 theme = AppTheme.LIQUID_GLASS,
                 title = "Liquid Glass",
-                description = "Свет, глубина и прозрачные живые поверхности",
+                description = "Преломлённый свет, прозрачность и живая глубина",
                 isSelected = selectedTheme == AppTheme.LIQUID_GLASS,
                 onClick = { onThemeSelected(AppTheme.LIQUID_GLASS) },
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             ThemeOption(
                 theme = AppTheme.ROYAL_GRAPHITE,
                 title = "Royal Graphite",
-                description = "Холодный графит, уголь и северный дождь",
+                description = "Холодный уголь, слоистый графит и мокрый блеск",
                 isSelected = selectedTheme == AppTheme.ROYAL_GRAPHITE,
                 onClick = { onThemeSelected(AppTheme.ROYAL_GRAPHITE) },
             )
             Spacer(Modifier.height(22.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
-            Spacer(Modifier.height(14.dp))
+            Text("Плавность ввода", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
             Text(
-                text = "ProxyScroll 0.2.0-alpha02",
+                text = "Настраивает световой отклик и ритм автосохранения",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                MotionOption(
+                    label = "Прямо",
+                    selected = inputMotion == InputMotion.DIRECT,
+                    onClick = { onInputMotionSelected(InputMotion.DIRECT) },
+                    modifier = Modifier.weight(1f),
+                )
+                MotionOption(
+                    label = "Мягко",
+                    selected = inputMotion == InputMotion.GENTLE,
+                    onClick = { onInputMotionSelected(InputMotion.GENTLE) },
+                    modifier = Modifier.weight(1f),
+                )
+                MotionOption(
+                    label = "Текуче",
+                    selected = inputMotion == InputMotion.FLOWING,
+                    onClick = { onInputMotionSelected(InputMotion.FLOWING) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(20.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f))
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "ProxyScroll 0.3.0-alpha03",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@Composable
+private fun MotionOption(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ProxySurface(
+        modifier = modifier
+            .height(48.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        strong = selected,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (selected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(17.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(3.dp))
+            }
+            Text(label, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -465,33 +922,30 @@ private fun ThemeOption(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            ThemeSwatch(theme = theme)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                )
+            ThemeSwatch(theme)
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = description,
+                    description,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (isSelected) {
                 Icon(
-                    imageVector = Icons.Default.CheckCircle,
+                    Icons.Default.CheckCircle,
                     contentDescription = "Выбрано",
                     tint = MaterialTheme.colorScheme.primary,
                 )
             } else {
                 Box(
-                    modifier = Modifier
+                    Modifier
                         .size(22.dp)
                         .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.58f),
-                            shape = CircleShape,
+                            1.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.58f),
+                            CircleShape,
                         ),
                 )
             }
@@ -502,135 +956,52 @@ private fun ThemeOption(
 @Composable
 private fun ThemeSwatch(theme: AppTheme) {
     val shape = RoundedCornerShape(18.dp)
-    Box(
+    Canvas(
         modifier = Modifier
             .size(66.dp)
-            .clip(shape),
+            .clip(shape)
+            .border(1.dp, Color.White.copy(alpha = 0.34f), shape),
     ) {
-        when (theme) {
-            AppTheme.LIQUID_GLASS -> {
-                Canvas(Modifier.fillMaxSize()) {
-                    drawRect(
-                        brush = Brush.linearGradient(
-                            listOf(Color(0xFFDCE6FF), Color(0xFFBCECF0)),
-                        ),
-                    )
-                    drawCircle(
-                        color = Color(0xFF7D72EE).copy(alpha = 0.52f),
-                        radius = size.width * 0.46f,
-                        center = Offset(size.width * 0.20f, size.height * 0.20f),
-                    )
-                    drawCircle(
-                        color = Color.White.copy(alpha = 0.58f),
-                        radius = size.width * 0.34f,
-                        center = Offset(size.width * 0.67f, size.height * 0.64f),
-                    )
-                }
-            }
-
-            AppTheme.ROYAL_GRAPHITE -> {
-                Image(
-                    painter = painterResource(R.drawable.royal_graphite),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0xFF071015).copy(alpha = 0.34f)),
-                )
-            }
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.36f),
-                    shape = shape,
+        if (theme == AppTheme.LIQUID_GLASS) {
+            drawRect(
+                brush = Brush.linearGradient(
+                    listOf(Color(0xFFE7EDFF), Color(0xFFC8F0EF)),
                 ),
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun NoteEditorSheet(
-    note: Note?,
-    onDismiss: () -> Unit,
-    onSave: (title: String, body: String) -> Unit,
-    onDelete: (() -> Unit)?,
-) {
-    var title by remember(note?.id) { mutableStateOf(note?.title.orEmpty()) }
-    var body by remember(note?.id) { mutableStateOf(note?.body.orEmpty()) }
-    val canSave = title.isNotBlank() || body.isNotBlank()
-    val style = LocalProxyVisualStyle.current
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-        scrimColor = style.scrim,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 20.dp),
-        ) {
-            Text(
-                text = if (note == null) "Новая заметка" else "Редактирование",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold,
             )
-            Spacer(Modifier.height(18.dp))
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text("Название") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                maxLines = 3,
+            drawCircle(
+                color = Color(0xFF6E7BE9).copy(alpha = 0.45f),
+                radius = size.width * 0.48f,
+                center = Offset(size.width * 0.18f, size.height * 0.18f),
             )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = body,
-                onValueChange = { body = it },
-                label = { Text("Текст заметки") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(240.dp)
-                    .animateContentSize(),
-                shape = RoundedCornerShape(18.dp),
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(Color.White.copy(alpha = 0.72f), Color.Transparent),
+                ),
+                radius = size.width * 0.42f,
+                center = Offset(size.width * 0.72f, size.height * 0.68f),
             )
-            Spacer(Modifier.height(18.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (onDelete != null) {
-                    TextButton(onClick = onDelete) {
-                        Icon(Icons.Default.Delete, contentDescription = null)
-                        Spacer(Modifier.size(6.dp))
-                        Text("Удалить")
-                    }
-                }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) {
-                    Text("Отмена")
-                }
-                Button(
-                    onClick = { onSave(title, body) },
-                    enabled = canSave,
-                ) {
-                    Text("Сохранить")
-                }
+        } else {
+            drawRect(
+                brush = Brush.linearGradient(
+                    listOf(Color(0xFF30393D), Color(0xFF090C0E)),
+                ),
+            )
+            repeat(12) { index ->
+                val x = size.width * index / 11f
+                drawLine(
+                    color = Color(0xFFC6D7DD).copy(alpha = if (index % 4 == 0) 0.16f else 0.05f),
+                    start = Offset(x, 0f),
+                    end = Offset(x - 3f, size.height),
+                    strokeWidth = if (index % 4 == 0) 1.2f else 0.6f,
+                )
             }
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(Color(0xFFB8D0D9).copy(alpha = 0.12f), Color.Transparent),
+                ),
+                center = Offset(size.width * 0.28f, size.height * 0.22f),
+                radius = size.width * 0.55f,
+            )
         }
     }
 }

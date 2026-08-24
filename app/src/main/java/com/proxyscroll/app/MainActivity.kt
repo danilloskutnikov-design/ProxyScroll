@@ -29,6 +29,9 @@ class MainActivity : ComponentActivity() {
             var selectedTheme by remember {
                 mutableStateOf(themePreferences.getTheme())
             }
+            var inputMotion by remember {
+                mutableStateOf(themePreferences.getInputMotion())
+            }
             val notesViewModel: NotesViewModel = viewModel(
                 factory = NotesViewModel.Factory(repository),
             )
@@ -38,6 +41,11 @@ class MainActivity : ComponentActivity() {
                 onThemeSelected = { theme ->
                     selectedTheme = theme
                     themePreferences.setTheme(theme)
+                },
+                inputMotion = inputMotion,
+                onInputMotionSelected = { motion ->
+                    inputMotion = motion
+                    themePreferences.setInputMotion(motion)
                 },
             )
         }
