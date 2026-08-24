@@ -141,6 +141,7 @@ import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.InterfaceShape
 import com.proxyscroll.app.domain.MaterialDepth
+import com.proxyscroll.app.domain.MaterialMotionQuality
 import com.proxyscroll.app.domain.MAX_STAIN_INTENSITY
 import com.proxyscroll.app.domain.MIN_STAIN_INTENSITY
 import com.proxyscroll.app.domain.MAX_INTERFACE_CORNER_DP
@@ -159,6 +160,7 @@ import com.proxyscroll.app.ui.editor.MIN_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.RichTextState
 import com.proxyscroll.app.ui.editor.annotatedText
 import com.proxyscroll.app.ui.theme.LocalProxyShape
+import com.proxyscroll.app.ui.theme.LocalMaterialMotionProfile
 import com.proxyscroll.app.ui.theme.LocalStainSettings
 import com.proxyscroll.app.ui.theme.ProxyBrandLockup
 import com.proxyscroll.app.ui.theme.ProxyScrollTheme
@@ -419,8 +421,10 @@ private fun Modifier.animatedClick(
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
+    val motionProfile = LocalMaterialMotionProfile.current
+    val effectivePressedScale = 1f - (1f - pressedScale) * motionProfile.deformation
     val scale by animateFloatAsState(
-        targetValue = if (pressed && enabled) pressedScale else 1f,
+        targetValue = if (pressed && enabled) effectivePressedScale else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium,
@@ -449,8 +453,10 @@ private fun Modifier.animatedCombinedClick(
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
+    val motionProfile = LocalMaterialMotionProfile.current
+    val effectivePressedScale = 1f - (1f - pressedScale) * motionProfile.deformation
     val scale by animateFloatAsState(
-        targetValue = if (pressed) pressedScale else 1f,
+        targetValue = if (pressed) effectivePressedScale else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium,
@@ -2491,6 +2497,39 @@ private fun SettingsSheet(
                             selected = stainSettings.motion == motion,
                             onClick = {
                                 onStainSettingsChanged(stainSettings.copy(motion = motion))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("Пластика материала", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = when (stainSettings.motionQuality) {
+                        MaterialMotionQuality.AUTO ->
+                            "Авто учитывает производительность устройства"
+                        MaterialMotionQuality.FULL ->
+                            "Полная деформация, живые блики и мягкий оптический шлейф"
+                        MaterialMotionQuality.LITE ->
+                            "Меньше движения и слоёв для максимально ровного интерфейса"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    MaterialMotionQuality.entries.forEach { quality ->
+                        MotionOption(
+                            label = quality.displayName,
+                            selected = stainSettings.motionQuality == quality,
+                            onClick = {
+                                onStainSettingsChanged(
+                                    stainSettings.copy(motionQuality = quality),
+                                )
                             },
                             modifier = Modifier.weight(1f),
                         )
