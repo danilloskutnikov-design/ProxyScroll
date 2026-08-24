@@ -21,9 +21,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -40,7 +42,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -64,6 +65,7 @@ import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
@@ -115,18 +117,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.proxyscroll.app.BuildConfig
 import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.InterfaceShape
@@ -271,6 +272,7 @@ fun ProxyScrollApp(
                                 editorOpen = true
                             },
                             onTogglePinned = viewModel::togglePinned,
+                            onColorFlagChanged = viewModel::setColorFlag,
                             onOpenSettings = { showSettings = true },
                         )
                     }
@@ -368,6 +370,37 @@ private fun Modifier.animatedClick(
         )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.animatedCombinedClick(
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    pressedScale: Float = 0.985f,
+): Modifier {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium,
+        ),
+        label = "physical-combined-press",
+    )
+    return this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .combinedClickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick,
+            onLongClickLabel = "Изменить цвет заметки",
+            onLongClick = onLongClick,
+        )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NotesScreen(
@@ -376,6 +409,7 @@ private fun NotesScreen(
     onCreate: () -> Unit,
     onEdit: (Note) -> Unit,
     onTogglePinned: (Note) -> Unit,
+    onColorFlagChanged: (Note, NoteColorFlag) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val searchInteractionSource = remember { MutableInteractionSource() }
@@ -505,7 +539,6 @@ private fun NotesScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    var appearanceIndex = 0
                     noteGroups.forEach { group ->
                         item(key = "flag-group-${group.flag.storageKey}") {
                             NoteGroupHeader(
@@ -517,33 +550,17 @@ private fun NotesScreen(
                         itemsIndexed(
                             items = group.notes,
                             key = { _, note -> note.id },
-                        ) { groupIndex, note ->
-                            val itemAppearanceIndex = appearanceIndex + groupIndex
-                            var visible by remember(note.id) { mutableStateOf(false) }
-                            LaunchedEffect(note.id) {
-                                delay((itemAppearanceIndex.coerceAtMost(8) * 48L) + 30L)
-                                visible = true
-                            }
-                            AnimatedVisibility(
-                                visible = visible,
+                        ) { _, note ->
+                            NoteCard(
+                                note = note,
+                                onClick = { onEdit(note) },
+                                onTogglePinned = { onTogglePinned(note) },
+                                onColorFlagChanged = { flag ->
+                                    onColorFlagChanged(note, flag)
+                                },
                                 modifier = Modifier.animateItem(),
-                                enter = fadeIn(tween(420)) +
-                                    slideInVertically(tween(480, easing = FastOutSlowInEasing)) {
-                                        it / 3
-                                    } +
-                                    scaleIn(tween(460), initialScale = 0.965f),
-                                exit = fadeOut(tween(220)) +
-                                    slideOutVertically(tween(260)) { -it / 5 } +
-                                    scaleOut(tween(220), targetScale = 0.98f),
-                            ) {
-                                NoteCard(
-                                    note = note,
-                                    onClick = { onEdit(note) },
-                                    onTogglePinned = { onTogglePinned(note) },
-                                )
-                            }
+                            )
                         }
-                        appearanceIndex += group.notes.size
                     }
                     item { Spacer(Modifier.height(96.dp)) }
                 }
@@ -656,68 +673,76 @@ private fun NoteCard(
     note: Note,
     onClick: () -> Unit,
     onTogglePinned: () -> Unit,
+    onColorFlagChanged: (NoteColorFlag) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    ProxySurface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animatedClick(onClick = onClick, pressedScale = 0.99f),
-        strong = note.isPinned,
-        role = ProxySurfaceRole.CARD,
-    ) {
-        Box {
-            if (note.colorFlag != NoteColorFlag.NONE) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .width(4.dp)
-                        .height(54.dp)
-                        .clip(RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    noteFlagColor(note.colorFlag).copy(alpha = 0.95f),
-                                    noteFlagColor(note.colorFlag).copy(alpha = 0.44f),
+    var showFlagMenu by remember(note.id) { mutableStateOf(false) }
+    Box(modifier = modifier.fillMaxWidth()) {
+        ProxySurface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .animatedCombinedClick(
+                    onClick = onClick,
+                    onLongClick = { showFlagMenu = true },
+                ),
+            strong = note.isPinned,
+            role = ProxySurfaceRole.CARD,
+            interactive = false,
+        ) {
+            Box {
+                if (note.colorFlag != NoteColorFlag.NONE) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .width(4.dp)
+                            .height(54.dp)
+                            .clip(RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        noteFlagColor(note.colorFlag).copy(alpha = 0.95f),
+                                        noteFlagColor(note.colorFlag).copy(alpha = 0.44f),
+                                    ),
                                 ),
                             ),
-                        ),
-                )
-            }
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = note.title.ifBlank { "Без названия" },
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onTogglePinned, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.PushPin,
-                        contentDescription = if (note.isPinned) "Открепить" else "Закрепить",
-                        tint = if (note.isPinned) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
                     )
                 }
-            }
-            if (note.body.isNotBlank()) {
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    text = annotatedText(note.body, note.spans),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.height(9.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = note.title.ifBlank { "Без названия" },
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = onTogglePinned, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.PushPin,
+                                contentDescription = if (note.isPinned) "Открепить" else "Закрепить",
+                                tint = if (note.isPinned) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
+                    if (note.body.isNotBlank()) {
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            text = annotatedText(note.body, note.spans),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Spacer(Modifier.height(9.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = DateFormat.getDateTimeInstance(
                             DateFormat.MEDIUM,
@@ -734,54 +759,67 @@ private fun NoteCard(
                             color = noteFlagColor(note.colorFlag),
                         )
                     }
+                    }
                 }
             }
         }
+        NoteFlagDropdown(
+            expanded = showFlagMenu,
+            selected = note.colorFlag,
+            helperText = "Цвет применяется сразу",
+            onDismiss = { showFlagMenu = false },
+            onSelected = { flag ->
+                showFlagMenu = false
+                onColorFlagChanged(flag)
+            },
+        )
     }
 }
 
 @Composable
-private fun NoteFlagPicker(
+private fun NoteFlagDropdown(
+    expanded: Boolean,
     selected: NoteColorFlag,
     onSelected: (NoteColorFlag) -> Unit,
-    modifier: Modifier = Modifier,
+    onDismiss: () -> Unit,
+    helperText: String,
 ) {
-    ProxyInsetSurface(
-        modifier = modifier.height(54.dp),
-        role = ProxySurfaceRole.INPUT,
-        selected = selected != NoteColorFlag.NONE,
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier.width(258.dp),
     ) {
-        Row(
+        Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
-            Column(modifier = Modifier.width(76.dp)) {
-                Text("Флаг", style = MaterialTheme.typography.labelSmall)
-                AnimatedContent(
-                    targetState = selected,
-                    transitionSpec = {
-                        (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 3 }) togetherWith
-                            (fadeOut(tween(120)) + slideOutVertically(tween(160)) { -it / 3 })
+            Text(
+                text = "Цвет заметки",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Spacer(Modifier.height(2.dp))
+            AnimatedContent(
+                targetState = selected,
+                transitionSpec = {
+                    fadeIn(tween(170)) togetherWith fadeOut(tween(120))
+                },
+                label = "note-flag-menu-label",
+            ) { flag ->
+                Text(
+                    text = flag.displayName,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (flag == NoteColorFlag.NONE) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        noteFlagColor(flag)
                     },
-                    label = "note-flag-label",
-                ) { flag ->
-                    Text(
-                        text = flag.displayName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (flag == NoteColorFlag.NONE) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            noteFlagColor(flag)
-                        },
-                        maxLines = 1,
-                    )
-                }
+                )
             }
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(8.dp))
             Row(
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 NoteColorFlag.entries.forEach { flag ->
@@ -792,7 +830,55 @@ private fun NoteFlagPicker(
                     )
                 }
             }
+            Spacer(Modifier.height(5.dp))
+            Text(
+                text = helperText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+    }
+}
+
+@Composable
+private fun NoteFlagMenuButton(
+    selected: NoteColorFlag,
+    onSelected: (NoteColorFlag) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.Palette,
+                    contentDescription = "Цвет заметки",
+                    tint = if (selected == NoteColorFlag.NONE) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        noteFlagColor(selected)
+                    },
+                )
+                if (selected != NoteColorFlag.NONE) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(noteFlagColor(selected)),
+                    )
+                }
+            }
+        }
+        NoteFlagDropdown(
+            expanded = expanded,
+            selected = selected,
+            helperText = "Палитра не занимает место в тексте",
+            onDismiss = { expanded = false },
+            onSelected = { flag ->
+                expanded = false
+                onSelected(flag)
+            },
+        )
     }
 }
 
@@ -891,6 +977,16 @@ private fun NoteEditorScreen(
             easing = FastOutSlowInEasing,
         ),
         label = "editor-focus-glow",
+    )
+    val editorPlaneAlpha by animateFloatAsState(
+        targetValue = if (bodyFocused) 0.34f else 0.18f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "editor-content-contrast",
+    )
+    val titleVerticalPadding by animateDpAsState(
+        targetValue = if (bodyFocused) 6.dp else 14.dp,
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
+        label = "editor-title-space",
     )
     val automaticTitle = remember(richText.value.text) {
         richText.value.text
@@ -1001,6 +1097,16 @@ private fun NoteEditorScreen(
                     }
                 },
                 actions = {
+                    NoteFlagMenuButton(
+                        selected = colorFlag,
+                        onSelected = { selectedFlag ->
+                            if (colorFlag != selectedFlag) {
+                                colorFlag = selectedFlag
+                                hasChanges = true
+                                saveState = EditorSaveState.EDITING
+                            }
+                        },
+                    )
                     if (savedNote != null) {
                         Box {
                             IconButton(onClick = { showEditorMenu = true }) {
@@ -1052,8 +1158,8 @@ private fun NoteEditorScreen(
             FormattingToolbar(
                 richText = richText,
                 modifier = Modifier
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .then(if (bodyFocused) Modifier else Modifier.navigationBarsPadding())
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
                 onFormatChanged = {
                     hasChanges = true
                     saveState = EditorSaveState.EDITING
@@ -1076,8 +1182,13 @@ private fun NoteEditorScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 14.dp),
-                textStyle = MaterialTheme.typography.headlineMedium.copy(
+                    .animateContentSize(animationSpec = tween(240))
+                    .padding(horizontal = 6.dp, vertical = titleVerticalPadding),
+                textStyle = (if (bodyFocused) {
+                    MaterialTheme.typography.titleLarge
+                } else {
+                    MaterialTheme.typography.headlineMedium
+                }).copy(
                     color = MaterialTheme.colorScheme.onBackground,
                 ),
                 keyboardOptions = KeyboardOptions(
@@ -1089,7 +1200,11 @@ private fun NoteEditorScreen(
                         if (title.isEmpty()) {
                             Text(
                                 text = "Название — необязательно",
-                                style = MaterialTheme.typography.headlineMedium,
+                                style = if (bodyFocused) {
+                                    MaterialTheme.typography.titleLarge
+                                } else {
+                                    MaterialTheme.typography.headlineMedium
+                                },
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
                             )
                         }
@@ -1098,7 +1213,7 @@ private fun NoteEditorScreen(
                 },
             )
             AnimatedVisibility(
-                visible = title.isBlank() && automaticTitle.isNotBlank(),
+                visible = !bodyFocused && title.isBlank() && automaticTitle.isNotBlank(),
                 enter = fadeIn(tween(240)) + slideInVertically(tween(280)) { -it / 3 },
                 exit = fadeOut(tween(160)) + slideOutVertically(tween(200)) { -it / 3 },
             ) {
@@ -1109,22 +1224,10 @@ private fun NoteEditorScreen(
                     modifier = Modifier.padding(start = 6.dp, bottom = 10.dp),
                 )
             }
-            NoteFlagPicker(
-                selected = colorFlag,
-                onSelected = { selectedFlag ->
-                    if (colorFlag != selectedFlag) {
-                        colorFlag = selectedFlag
-                        hasChanges = true
-                        saveState = EditorSaveState.EDITING
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(10.dp))
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f),
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(if (bodyFocused) 7.dp else 12.dp))
             val glowColor = MaterialTheme.colorScheme.primary
             val editorCornerDp = LocalProxyShape.current.resolvedInputCornerDp
             val editorMorphCorner by animateDpAsState(
@@ -1150,12 +1253,19 @@ private fun NoteEditorScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.18f))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = editorPlaneAlpha))
                         .drawBehind {
                             if (focusGlow > 0f) {
                                 drawRoundRect(
-                                    color = glowColor.copy(alpha = focusGlow * 0.055f),
+                                    color = glowColor.copy(alpha = focusGlow * 0.10f),
                                     cornerRadius = CornerRadius(editorMorphCorner.toPx()),
+                                )
+                                drawRoundRect(
+                                    color = glowColor.copy(alpha = focusGlow * 0.20f),
+                                    cornerRadius = CornerRadius(editorMorphCorner.toPx()),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                        width = 1.dp.toPx(),
+                                    ),
                                 )
                             }
                         },
@@ -1249,36 +1359,6 @@ private fun NoteEditorScreen(
                             radius = radius * 0.84f,
                         )
                     }
-                    val layoutResult = bodyTextLayout
-                    if (
-                        richText.hasSelection &&
-                        richText.value.text.isNotEmpty() &&
-                        layoutResult != null
-                    ) {
-                        val density = LocalDensity.current
-                        val selectionAnchor = minOf(
-                            richText.value.selection.start,
-                            richText.value.selection.end,
-                        ).coerceIn(0, richText.value.text.lastIndex)
-                        val selectionBox = layoutResult.getBoundingBox(selectionAnchor)
-                        val lensY = with(density) {
-                            (selectionBox.top.roundToInt() - 48.dp.roundToPx())
-                                .coerceAtLeast(6.dp.roundToPx())
-                        }
-                        InlineSelectionLens(
-                            richText = richText,
-                            onFormatChanged = {
-                                hasChanges = true
-                                saveState = EditorSaveState.EDITING
-                            },
-                            modifier = Modifier.offset {
-                                IntOffset(
-                                    x = with(density) { 10.dp.roundToPx() },
-                                    y = lensY,
-                                )
-                            },
-                        )
-                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -1311,68 +1391,6 @@ private fun NoteEditorScreen(
 }
 
 @Composable
-private fun InlineSelectionLens(
-    richText: RichTextState,
-    onFormatChanged: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    ProxySurface(
-        modifier = modifier,
-        role = ProxySurfaceRole.OVERLAY,
-        strong = true,
-        active = true,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = richText.selectionLength.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 7.dp),
-            )
-            FormatButton(
-                selected = richText.boldActive,
-                onClick = {
-                    richText.toggleBold()
-                    onFormatChanged()
-                },
-            ) {
-                Icon(Icons.Default.FormatBold, contentDescription = "Жирный")
-            }
-            FormatButton(
-                selected = richText.underlineActive,
-                onClick = {
-                    richText.toggleUnderline()
-                    onFormatChanged()
-                },
-            ) {
-                Icon(Icons.Default.FormatUnderlined, contentDescription = "Подчёркнутый")
-            }
-            FormatButton(
-                selected = richText.strikethroughActive,
-                onClick = {
-                    richText.toggleStrikethrough()
-                    onFormatChanged()
-                },
-            ) {
-                Icon(Icons.Default.FormatStrikethrough, contentDescription = "Зачёркнутый")
-            }
-            FormatButton(
-                selected = false,
-                onClick = {
-                    richText.clearFormatting()
-                    onFormatChanged()
-                },
-            ) {
-                Icon(Icons.Default.FormatClear, contentDescription = "Очистить формат")
-            }
-        }
-    }
-}
-
-@Composable
 private fun FormattingToolbar(
     richText: RichTextState,
     modifier: Modifier = Modifier,
@@ -1390,42 +1408,30 @@ private fun FormattingToolbar(
                 enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 2 },
                 exit = fadeOut(tween(130)) + slideOutVertically(tween(170)) { it / 2 },
             ) {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(start = 14.dp, end = 10.dp, top = 9.dp, bottom = 7.dp),
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.width(118.dp)) {
-                            Text(
-                                text = "Фрагмент · ${richText.selectionLength}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Text(
-                                text = richText.selectedPreview.ifBlank { "Выделено" },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        SelectionLensButton("Слово", richText::selectWord)
-                        SelectionLensButton("Фраза", richText::selectSentence)
-                        SelectionLensButton("Абзац", richText::selectParagraph)
-                    }
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 12.dp, end = 9.dp, top = 6.dp, bottom = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Выделено · ${richText.selectionLength}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(end = 2.dp),
+                        maxLines = 1,
                     )
+                    SelectionLensButton("Слово", richText::selectWord)
+                    SelectionLensButton("Фраза", richText::selectSentence)
+                    SelectionLensButton("Абзац", richText::selectParagraph)
                 }
             }
             Row(
                 modifier = Modifier
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1525,11 +1531,11 @@ private fun SelectionLensButton(
 ) {
     Box(
         modifier = Modifier
-            .height(34.dp)
+            .height(30.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f))
             .animatedClick(onClick = onClick, pressedScale = 0.92f)
-            .padding(horizontal = 11.dp),
+            .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -1549,7 +1555,7 @@ private fun FormatButton(
 ) {
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(40.dp)
             .graphicsLayer { alpha = if (enabled) 1f else 0.34f }
             .clip(CircleShape)
             .background(
@@ -1580,14 +1586,14 @@ private fun FontSizeControl(
     var showCustomDialog by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
-            .height(44.dp)
+            .height(40.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(36.dp)
                 .animatedClick(onClick = onDecrease, pressedScale = 0.86f),
             contentAlignment = Alignment.Center,
         ) {
@@ -1595,7 +1601,7 @@ private fun FontSizeControl(
         }
         Row(
             modifier = Modifier
-                .height(40.dp)
+                .height(36.dp)
                 .animatedClick(
                     onClick = { showCustomDialog = true },
                     pressedScale = 0.94f,
@@ -1612,7 +1618,7 @@ private fun FontSizeControl(
         }
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(36.dp)
                 .animatedClick(onClick = onIncrease, pressedScale = 0.86f),
             contentAlignment = Alignment.Center,
         ) {
@@ -2039,7 +2045,7 @@ private fun SettingsSheet(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "ProxyScroll · 0.5.9-alpha15",
+                    text = "ProxyScroll · ${BuildConfig.VERSION_NAME}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
