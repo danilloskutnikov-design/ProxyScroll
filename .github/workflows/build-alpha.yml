@@ -46,7 +46,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk installers/ProxyScroll-0.7.0-alpha17-update.apk
           cp app/build/outputs/apk/sidecar/app-sidecar.apk installers/ProxyScroll-0.7.0-alpha17-sidecar.apk
 
-      - name: Apply compatibility signatures
+      - name: Apply stable Alpha signatures
         run: |
           set -euo pipefail
           for apk in installers/*.apk; do
@@ -58,7 +58,7 @@ jobs:
               --ks-key-alias proxyscrollalpha \
               --ks-pass pass:android \
               --key-pass pass:android \
-              --v1-signing-enabled true \
+              --v1-signing-enabled false \
               --v2-signing-enabled true \
               --v3-signing-enabled true \
               --v4-signing-enabled false \
