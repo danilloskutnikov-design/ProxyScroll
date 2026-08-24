@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -69,7 +70,9 @@ import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InterfaceShape
 import com.proxyscroll.app.domain.StainPalette
 import com.proxyscroll.app.domain.StainSettings
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 private const val THEME_TRANSITION_MILLIS = 720
 
@@ -205,23 +208,39 @@ private class RepeatingGrainBrush(
     )
 }
 
+data class MaterialMicrostructure(
+    val fine: Brush,
+    val spectral: Brush,
+)
+
+private enum class MicrostructureLayer {
+    FINE,
+    SPECTRAL,
+}
+
 private fun createMaterialGrainBrush(
     theme: AppTheme,
     palette: StainPaletteColors,
+    width: Int,
+    height: Int,
+    layer: MicrostructureLayer,
 ): Brush {
-    // A compact high-frequency spectral tile replaces hundreds of draw calls.
-    // The RGB tint represents inclusions in the material, while rare bright
-    // pixels behave like caustic crystals under grazing light.
-    val edge = 128
-    val pixels = IntArray(edge * edge)
-    val spectrum = arrayOf(
-        palette.primary,
-        palette.secondary,
-        palette.tertiary,
-        palette.caustic,
-        palette.neutral,
-    )
-    var seed = if (theme == AppTheme.LIQUID_GLASS) 0x51F15EED else 0x37A9C2D1
+    // Two prime-ish, differently sized fields are composited in the material.
+    // Their repeat periods do not line up on a phone screen, while the slow
+    // envelope makes particles behave like illuminated inclusions instead of
+    // uniform digital noise.
+    val pixels = IntArray(width * height)
+    val spectrum = if (layer == MicrostructureLayer.FINE) {
+        arrayOf(palette.neutral, palette.caustic, palette.secondary)
+    } else {
+        arrayOf(palette.primary, palette.secondary, palette.tertiary, palette.caustic)
+    }
+    var seed = when {
+        theme == AppTheme.LIQUID_GLASS && layer == MicrostructureLayer.FINE -> 0x51F15EED
+        theme == AppTheme.LIQUID_GLASS -> 0x6E624EB7
+        layer == MicrostructureLayer.FINE -> 0x37A9C2D1
+        else -> 0x2B7E1516
+    }
 
     fun nextNoise(): Int {
         seed = seed * 1_664_525 + 1_013_904_223
@@ -229,22 +248,36 @@ private fun createMaterialGrainBrush(
     }
 
     pixels.indices.forEach { index ->
+        val x = index % width
+        val y = index / width
         val noise = nextNoise()
         val occupancy = noise and 0xFF
-        val visibleThreshold = if (theme == AppTheme.LIQUID_GLASS) 188 else 174
+        val opticalEnvelope = (
+            sin(x * 0.071) +
+                cos(y * 0.053) +
+                sin((x + y) * 0.029) +
+                3.0
+            ) / 6.0
+        val visibleThreshold = when (layer) {
+            MicrostructureLayer.FINE -> (54 + opticalEnvelope * 38).roundToInt()
+            MicrostructureLayer.SPECTRAL -> (15 + opticalEnvelope * 28).roundToInt()
+        }
         if (occupancy >= visibleThreshold) return@forEach
 
         val source = spectrum[(noise ushr 9) % spectrum.size]
-        val caustic = occupancy < 7
+        val caustic = layer == MicrostructureLayer.SPECTRAL && occupancy < 4
         val lift = if (caustic) {
-            0.62f
+            0.72f
         } else {
-            0.10f + ((noise ushr 17) and 0x0F) / 100f
+            val baseLift = if (layer == MicrostructureLayer.FINE) 0.18f else 0.08f
+            baseLift + ((noise ushr 17) and 0x0F) / 120f
         }
         val alpha = if (caustic) {
-            122 + ((noise ushr 22) and 0x1F)
+            92 + ((noise ushr 22) and 0x1F)
         } else {
-            30 + ((noise ushr 21) and 0x23)
+            val baseAlpha = if (layer == MicrostructureLayer.FINE) 14 else 24
+            val spread = if (layer == MicrostructureLayer.FINE) 17 else 26
+            baseAlpha + ((noise ushr 21) and spread)
         }
         val red = ((source.red + (1f - source.red) * lift) * 255f)
             .roundToInt().coerceIn(0, 255)
@@ -255,12 +288,15 @@ private fun createMaterialGrainBrush(
         pixels[index] = android.graphics.Color.argb(alpha.coerceAtMost(255), red, green, blue)
     }
 
-    val bitmap = Bitmap.createBitmap(pixels, edge, edge, Bitmap.Config.ARGB_8888)
+    val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
     return RepeatingGrainBrush(bitmap.asImageBitmap())
 }
 
-val LocalMaterialGrainBrush = staticCompositionLocalOf<Brush> {
-    SolidColor(Color.Transparent)
+val LocalMaterialMicrostructure = staticCompositionLocalOf {
+    MaterialMicrostructure(
+        fine = SolidColor(Color.Transparent),
+        spectral = SolidColor(Color.Transparent),
+    )
 }
 
 enum class ProxySurfaceRole {
@@ -286,10 +322,23 @@ fun ProxyScrollTheme(
     val stainPalette = animateStainPalette(
         target = paletteFor(selectedTheme, stainSettings.palette),
     )
-    val materialGrainBrush = remember(selectedTheme, stainSettings.palette) {
-        createMaterialGrainBrush(
-            theme = selectedTheme,
-            palette = paletteFor(selectedTheme, stainSettings.palette),
+    val materialMicrostructure = remember(selectedTheme, stainSettings.palette) {
+        val palette = paletteFor(selectedTheme, stainSettings.palette)
+        MaterialMicrostructure(
+            fine = createMaterialGrainBrush(
+                theme = selectedTheme,
+                palette = palette,
+                width = 197,
+                height = 181,
+                layer = MicrostructureLayer.FINE,
+            ),
+            spectral = createMaterialGrainBrush(
+                theme = selectedTheme,
+                palette = palette,
+                width = 263,
+                height = 239,
+                layer = MicrostructureLayer.SPECTRAL,
+            ),
         )
     }
     val typographyProgress = animateFloatAsState(
@@ -315,7 +364,7 @@ fun ProxyScrollTheme(
         LocalProxyShape provides interfaceShape,
         LocalStainSettings provides stainSettings.normalized(),
         LocalStainPaletteColors provides stainPalette,
-        LocalMaterialGrainBrush provides materialGrainBrush,
+        LocalMaterialMicrostructure provides materialMicrostructure,
     ) {
         MaterialTheme(
             colorScheme = animatedScheme,
@@ -470,7 +519,7 @@ private fun MaterialBackground(
 ) {
     val settings = LocalStainSettings.current
     val palette = LocalStainPaletteColors.current
-    val materialGrainBrush = LocalMaterialGrainBrush.current
+    val microstructure = LocalMaterialMicrostructure.current
     val transition = rememberInfiniteTransition(label = "ambient-material-motion")
     val drift = transition.animateFloat(
         initialValue = -1f,
@@ -626,14 +675,37 @@ private fun MaterialBackground(
             )
         }
 
-        drawRect(
-            brush = materialGrainBrush,
-            alpha = if (theme == AppTheme.LIQUID_GLASS) {
-                (0.62f * stain).coerceIn(0.28f, 0.78f)
-            } else {
-                (0.54f * stain).coerceIn(0.26f, 0.66f)
-            },
-        )
+        val fineAlpha = if (theme == AppTheme.LIQUID_GLASS) {
+            (0.27f * stain).coerceIn(0.10f, 0.34f)
+        } else {
+            (0.23f * stain).coerceIn(0.09f, 0.29f)
+        }
+        val spectralAlpha = if (theme == AppTheme.LIQUID_GLASS) {
+            (0.18f * stain).coerceIn(0.06f, 0.23f)
+        } else {
+            (0.12f * stain).coerceIn(0.04f, 0.16f)
+        }
+        val overscan = 28f
+        withTransform({
+            translate(activeDrift * 11f, activeDrift * -7f)
+        }) {
+            drawRect(
+                brush = microstructure.fine,
+                topLeft = Offset(-overscan, -overscan),
+                size = Size(size.width + overscan * 2f, size.height + overscan * 2f),
+                alpha = fineAlpha,
+            )
+        }
+        withTransform({
+            translate(activeDrift * -17f, activeDrift * 9f)
+        }) {
+            drawRect(
+                brush = microstructure.spectral,
+                topLeft = Offset(-overscan, -overscan),
+                size = Size(size.width + overscan * 2f, size.height + overscan * 2f),
+                alpha = spectralAlpha,
+            )
+        }
     }
 }
 
@@ -652,7 +724,7 @@ fun ProxySurface(
     val shapeSettings = LocalProxyShape.current
     val stainSettings = LocalStainSettings.current
     val palette = LocalStainPaletteColors.current
-    val materialGrainBrush = LocalMaterialGrainBrush.current
+    val microstructure = LocalMaterialMicrostructure.current
     val cornerDp = when (role) {
         ProxySurfaceRole.CARD -> shapeSettings.resolvedCardCornerDp
         ProxySurfaceRole.INPUT -> shapeSettings.resolvedInputCornerDp
@@ -933,11 +1005,16 @@ fun ProxySurface(
                     center = Offset(size.width * 0.52f, size.height * 0.50f),
                     radius = maxOf(size.width, size.height) * 0.72f,
                 )
-                val grainOpacity = (
-                    (if (liquid) 0.82f else 0.66f) * depthFactor *
-                        (0.98f - clarity * 0.34f) *
-                        (0.72f + stainSettings.intensity * 0.36f)
-                ).coerceIn(0.30f, 0.92f)
+                val fineGrainOpacity = (
+                    (if (liquid) 0.28f else 0.22f) * depthFactor *
+                        (0.94f - clarity * 0.30f) *
+                        (0.76f + stainSettings.intensity * 0.22f)
+                ).coerceIn(0.08f, 0.34f)
+                val spectralGrainOpacity = (
+                    (if (liquid) 0.16f else 0.10f) * depthFactor *
+                        (0.76f + clarity * 0.24f) *
+                        stainSettings.intensity
+                ).coerceIn(0.035f, 0.21f)
                 val innerRim = Brush.linearGradient(
                     colors = if (liquid) {
                         listOf(
@@ -963,7 +1040,8 @@ fun ProxySurface(
                     drawRect(brush = subglassGlow)
                     drawRect(brush = lens)
                     drawRect(brush = lowerRefraction)
-                    drawRect(brush = materialGrainBrush, alpha = grainOpacity)
+                    drawRect(brush = microstructure.fine, alpha = fineGrainOpacity)
+                    drawRect(brush = microstructure.spectral, alpha = spectralGrainOpacity)
                     drawRect(brush = safetyFrost)
                     if (clarity > 0.01f) {
                         drawRect(brush = chromaticTouchBloom)
@@ -1060,7 +1138,7 @@ fun ProxyInsetSurface(
     val shapeSettings = LocalProxyShape.current
     val stainSettings = LocalStainSettings.current
     val palette = LocalStainPaletteColors.current
-    val materialGrainBrush = LocalMaterialGrainBrush.current
+    val microstructure = LocalMaterialMicrostructure.current
     val cornerDp = when (role) {
         ProxySurfaceRole.CARD -> shapeSettings.resolvedCardCornerDp
         ProxySurfaceRole.INPUT -> shapeSettings.resolvedInputCornerDp
@@ -1120,10 +1198,13 @@ fun ProxyInsetSurface(
             .background(fillBrush)
             .drawWithCache {
                 val liquid = style.theme == AppTheme.LIQUID_GLASS
-                val grainAlpha = (if (liquid) 0.68f else 0.58f) *
-                    depthFactor * (if (selected) 1.12f else 1f)
+                val fineAlpha = (if (liquid) 0.24f else 0.19f) *
+                    depthFactor * (if (selected) 1.10f else 1f)
+                val spectralAlpha = (if (liquid) 0.12f else 0.075f) *
+                    stainSettings.intensity * depthFactor * (if (selected) 1.14f else 1f)
                 onDrawBehind {
-                    drawRect(brush = materialGrainBrush, alpha = grainAlpha)
+                    drawRect(brush = microstructure.fine, alpha = fineAlpha)
+                    drawRect(brush = microstructure.spectral, alpha = spectralAlpha)
                 }
             }
             .border(0.7.dp, outline, resolvedShape),
