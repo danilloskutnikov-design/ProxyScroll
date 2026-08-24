@@ -103,6 +103,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -135,9 +137,10 @@ import com.proxyscroll.app.ui.editor.MAX_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.MIN_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.RichTextState
 import com.proxyscroll.app.ui.editor.annotatedText
-import com.proxyscroll.app.ui.theme.LocalProxyVisualStyle
 import com.proxyscroll.app.ui.theme.LocalProxyShape
 import com.proxyscroll.app.ui.theme.ProxyScrollTheme
+import com.proxyscroll.app.ui.theme.ProxyInsetSurface
+import com.proxyscroll.app.ui.theme.ProxySettingsFog
 import com.proxyscroll.app.ui.theme.ProxySurface
 import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import com.proxyscroll.app.ui.theme.ProxyThemeBackground
@@ -163,67 +166,101 @@ fun ProxyScrollApp(
     var editorOpen by remember { mutableStateOf(false) }
     var editorNote by remember { mutableStateOf<Note?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    val settingsFogProgress by animateFloatAsState(
+        targetValue = if (showSettings && !editorOpen) 1f else 0f,
+        animationSpec = tween(520, easing = FastOutSlowInEasing),
+        label = "settings-fog-progress",
+    )
+    val settingsFogRadius by animateDpAsState(
+        targetValue = if (showSettings && !editorOpen) 18.dp else 0.dp,
+        animationSpec = tween(520, easing = FastOutSlowInEasing),
+        label = "settings-fog-radius",
+    )
+    val settingsBackgroundScale by animateFloatAsState(
+        targetValue = if (showSettings && !editorOpen) 0.992f else 1f,
+        animationSpec = tween(520, easing = FastOutSlowInEasing),
+        label = "settings-background-depth",
+    )
 
     ProxyScrollTheme(
         selectedTheme = selectedTheme,
         interfaceShape = interfaceShape,
     ) {
         Box(Modifier.fillMaxSize()) {
-            ProxyThemeBackground(
-                selectedTheme = selectedTheme,
-                modifier = Modifier.fillMaxSize(),
-            )
-            AnimatedContent(
-                targetState = editorOpen,
-                transitionSpec = {
-                    if (targetState) {
-                        (fadeIn(tween(300)) + slideInHorizontally(tween(380)) { it / 8 }) togetherWith
-                            (fadeOut(tween(220)) + slideOutHorizontally(tween(300)) { -it / 12 })
-                    } else {
-                        (fadeIn(tween(300)) + slideInHorizontally(tween(360)) { -it / 10 }) togetherWith
-                            (fadeOut(tween(200)) + slideOutHorizontally(tween(300)) { it / 9 })
-                    }
-                },
-                label = "notes-editor-transition",
-            ) { isEditing ->
-                if (isEditing) {
-                    NoteEditorScreen(
-                        note = editorNote,
-                        inputMotion = inputMotion,
-                        onSave = viewModel::save,
-                        onDelete = { deletedNote ->
-                            viewModel.delete(deletedNote)
-                            editorOpen = false
-                            appScope.launch {
-                                val result = snackbarHostState.showSnackbar(
-                                    message = "Заметка удалена",
-                                    actionLabel = "Отменить",
-                                    duration = SnackbarDuration.Long,
-                                )
-                                if (result == SnackbarResult.ActionPerformed) {
-                                    viewModel.restore(deletedNote)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(
+                        radius = settingsFogRadius,
+                        edgeTreatment = BlurredEdgeTreatment.Unbounded,
+                    )
+                    .graphicsLayer {
+                        scaleX = settingsBackgroundScale
+                        scaleY = settingsBackgroundScale
+                    },
+            ) {
+                ProxyThemeBackground(
+                    selectedTheme = selectedTheme,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                AnimatedContent(
+                    targetState = editorOpen,
+                    transitionSpec = {
+                        if (targetState) {
+                            (fadeIn(tween(300)) + slideInHorizontally(tween(380)) { it / 8 }) togetherWith
+                                (fadeOut(tween(220)) + slideOutHorizontally(tween(300)) { -it / 12 })
+                        } else {
+                            (fadeIn(tween(300)) + slideInHorizontally(tween(360)) { -it / 10 }) togetherWith
+                                (fadeOut(tween(200)) + slideOutHorizontally(tween(300)) { it / 9 })
+                        }
+                    },
+                    label = "notes-editor-transition",
+                ) { isEditing ->
+                    if (isEditing) {
+                        NoteEditorScreen(
+                            note = editorNote,
+                            inputMotion = inputMotion,
+                            onSave = viewModel::save,
+                            onDelete = { deletedNote ->
+                                viewModel.delete(deletedNote)
+                                editorOpen = false
+                                appScope.launch {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = "Заметка удалена",
+                                        actionLabel = "Отменить",
+                                        duration = SnackbarDuration.Long,
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        viewModel.restore(deletedNote)
+                                    }
                                 }
-                            }
-                        },
-                        onClose = { editorOpen = false },
-                    )
-                } else {
-                    NotesScreen(
-                        state = state,
-                        onQueryChange = viewModel::setQuery,
-                        onCreate = {
-                            editorNote = null
-                            editorOpen = true
-                        },
-                        onEdit = {
-                            editorNote = it
-                            editorOpen = true
-                        },
-                        onTogglePinned = viewModel::togglePinned,
-                        onOpenSettings = { showSettings = true },
-                    )
+                            },
+                            onClose = { editorOpen = false },
+                        )
+                    } else {
+                        NotesScreen(
+                            state = state,
+                            onQueryChange = viewModel::setQuery,
+                            onCreate = {
+                                editorNote = null
+                                editorOpen = true
+                            },
+                            onEdit = {
+                                editorNote = it
+                                editorOpen = true
+                            },
+                            onTogglePinned = viewModel::togglePinned,
+                            onOpenSettings = { showSettings = true },
+                        )
+                    }
                 }
             }
+
+            ProxySettingsFog(
+                selectedTheme = selectedTheme,
+                progress = settingsFogProgress,
+                modifier = Modifier.fillMaxSize(),
+            )
 
             if (showSettings && !editorOpen) {
                 SettingsSheet(
@@ -1290,13 +1327,12 @@ private fun SettingsSheet(
     onInterfaceShapeChanged: (InterfaceShape) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val style = LocalProxyVisualStyle.current
     val sheetCorner = (interfaceShape.globalCornerDp + 8).coerceAtMost(32).dp
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = Color.Transparent,
-        scrimColor = style.scrim,
+        scrimColor = Color.Transparent,
         dragHandle = null,
     ) {
         ProxySurface(
@@ -1440,7 +1476,7 @@ private fun SettingsSheet(
                     )
                 }
                 Spacer(Modifier.height(10.dp))
-                ProxySurface(
+                ProxyInsetSurface(
                     modifier = Modifier.fillMaxWidth(),
                     role = ProxySurfaceRole.CARD,
                 ) {
@@ -1475,7 +1511,7 @@ private fun SettingsSheet(
                 ) {
                     Column {
                         Spacer(Modifier.height(10.dp))
-                        ProxySurface(
+                        ProxyInsetSurface(
                             modifier = Modifier.fillMaxWidth(),
                             role = ProxySurfaceRole.CARD,
                         ) {
@@ -1547,7 +1583,7 @@ private fun SettingsSheet(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "ProxyScroll · 0.5.1-alpha07",
+                    text = "ProxyScroll · 0.5.2-alpha08",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1564,12 +1600,12 @@ private fun CompactThemeOption(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ProxySurface(
+    ProxyInsetSurface(
         modifier = modifier
             .height(68.dp)
             .animatedClick(onClick = onClick, pressedScale = 0.96f),
         role = ProxySurfaceRole.CARD,
-        strong = selected,
+        selected = selected,
     ) {
         Row(
             modifier = Modifier
@@ -1614,12 +1650,11 @@ private fun ShapeLivePreview(shapeSettings: InterfaceShape) {
         animationSpec = tween(220),
         label = "preview-button-corner",
     )
-    ProxySurface(
+    ProxyInsetSurface(
         modifier = Modifier
             .fillMaxWidth()
             .height(250.dp),
         role = ProxySurfaceRole.OVERLAY,
-        strong = true,
     ) {
         Column(Modifier.padding(14.dp)) {
             Text(
@@ -1711,13 +1746,13 @@ private fun ShapePreset(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ProxySurface(
+    ProxyInsetSurface(
         modifier = modifier
             .height(56.dp)
             .animatedClick(onClick = onClick, pressedScale = 0.95f),
         shape = RoundedCornerShape(value.dp),
         role = ProxySurfaceRole.BUTTON,
-        strong = selected,
+        selected = selected,
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -1795,12 +1830,12 @@ private fun MotionOption(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ProxySurface(
+    ProxyInsetSurface(
         modifier = modifier
             .height(48.dp)
             .animatedClick(onClick = onClick, pressedScale = 0.95f),
         role = ProxySurfaceRole.BUTTON,
-        strong = selected,
+        selected = selected,
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
@@ -1904,21 +1939,23 @@ private fun ThemeSwatch(
         } else {
             drawRect(
                 brush = Brush.linearGradient(
-                    listOf(Color(0xFF30393D), Color(0xFF090C0E)),
+                    listOf(Color(0xFF3E4B51), Color(0xFF11181B), Color(0xFF06090A)),
                 ),
             )
-            repeat(12) { index ->
-                val x = size.width * index / 11f
-                drawLine(
-                    color = Color(0xFFC6D7DD).copy(alpha = if (index % 4 == 0) 0.16f else 0.05f),
-                    start = Offset(x, 0f),
-                    end = Offset(x - 3f, size.height),
-                    strokeWidth = if (index % 4 == 0) 1.2f else 0.6f,
-                )
-            }
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color(0xFFD9EDF3).copy(alpha = 0.16f),
+                        Color.Transparent,
+                    ),
+                    start = Offset(-size.width * 0.15f, 0f),
+                    end = Offset(size.width, size.height),
+                ),
+            )
             drawCircle(
                 brush = Brush.radialGradient(
-                    listOf(Color(0xFFB8D0D9).copy(alpha = 0.12f), Color.Transparent),
+                    listOf(Color(0xFFB8D0D9).copy(alpha = 0.14f), Color.Transparent),
                 ),
                 center = Offset(size.width * 0.28f, size.height * 0.22f),
                 radius = size.width * 0.55f,

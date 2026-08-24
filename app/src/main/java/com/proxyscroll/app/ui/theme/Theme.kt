@@ -113,16 +113,16 @@ private val LiquidVisualStyle = ProxyVisualStyle(
 
 private val GraphiteVisualStyle = ProxyVisualStyle(
     theme = AppTheme.ROYAL_GRAPHITE,
-    materialTop = Color(0xFF252C30).copy(alpha = 0.88f),
-    materialMiddle = Color(0xFF151A1D).copy(alpha = 0.90f),
-    materialBottom = Color(0xFF0D1113).copy(alpha = 0.94f),
-    strongTop = Color(0xFF30393E).copy(alpha = 0.94f),
-    strongBottom = Color(0xFF101518).copy(alpha = 0.97f),
-    rimLight = Color(0xFFC3D2D8).copy(alpha = 0.24f),
-    rimShade = Color.Black.copy(alpha = 0.72f),
-    specular = Color(0xFFCAE3EC).copy(alpha = 0.11f),
-    shadow = Color.Black.copy(alpha = 0.62f),
-    scrim = Color.Black.copy(alpha = 0.58f),
+    materialTop = Color(0xFF35434A).copy(alpha = 0.62f),
+    materialMiddle = Color(0xFF182126).copy(alpha = 0.64f),
+    materialBottom = Color(0xFF0B1013).copy(alpha = 0.74f),
+    strongTop = Color(0xFF435159).copy(alpha = 0.78f),
+    strongBottom = Color(0xFF10171B).copy(alpha = 0.84f),
+    rimLight = Color(0xFFD5E8EF).copy(alpha = 0.28f),
+    rimShade = Color.Black.copy(alpha = 0.62f),
+    specular = Color(0xFFD7F1FA).copy(alpha = 0.16f),
+    shadow = Color.Black.copy(alpha = 0.52f),
+    scrim = Color.Black.copy(alpha = 0.38f),
 )
 
 val LocalProxyVisualStyle = staticCompositionLocalOf { LiquidVisualStyle }
@@ -371,48 +371,39 @@ private fun MaterialBackground(theme: AppTheme) {
             drawRect(
                 brush = Brush.verticalGradient(
                     listOf(
-                        Color(0xFF11171A),
-                        Color(0xFF090C0E),
-                        Color(0xFF050708),
+                        Color(0xFF151D21),
+                        Color(0xFF090E11),
+                        Color(0xFF040607),
                     ),
                 ),
             )
             drawRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF6F8994).copy(alpha = 0.10f),
+                        Color(0xFFA8C3CD).copy(alpha = 0.12f),
                         Color.Transparent,
-                        Color.Black.copy(alpha = 0.40f),
+                        Color.Black.copy(alpha = 0.34f),
                     ),
-                    start = Offset(size.width * (0.04f + drift * 0.025f), 0f),
-                    end = Offset(size.width, size.height * 0.82f),
+                    start = Offset(size.width * (-0.18f + drift * 0.025f), 0f),
+                    end = Offset(size.width * 0.92f, size.height),
                 ),
             )
-            repeat(38) { index ->
-                val fraction = index / 37f
-                val x = size.width * fraction + sin(index * 1.7).toFloat() * 5f
-                val alpha = if (index % 7 == 0) 0.075f else 0.028f
+            repeat(11) { index ->
+                val fraction = (index + 1f) / 12f
+                val x = size.width * fraction + sin(index * 1.9).toFloat() * 8f
+                val alpha = if (index % 4 == 0) 0.065f else 0.026f
                 drawLine(
-                    color = Color(0xFFC6D4D9).copy(alpha = alpha),
-                    start = Offset(x, 0f),
-                    end = Offset(x + drift * 5f, size.height),
-                    strokeWidth = if (index % 7 == 0) 1.2f else 0.55f,
-                )
-            }
-            repeat(12) { index ->
-                val y = size.height * (index + 1) / 13f
-                drawLine(
-                    color = Color.Black.copy(alpha = 0.13f),
-                    start = Offset(0f, y),
-                    end = Offset(size.width, y + sin(index.toFloat()) * 2f),
-                    strokeWidth = 1.4f,
+                    color = Color(0xFFCFE2E8).copy(alpha = alpha),
+                    start = Offset(x, -size.height * 0.05f),
+                    end = Offset(x - size.width * 0.14f + drift * 4f, size.height * 1.05f),
+                    strokeWidth = if (index % 4 == 0) 1.1f else 0.55f,
                 )
             }
             val wetLight = Offset(size.width * 0.17f, size.height * (0.22f + drift * 0.03f))
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFF8DAAB5).copy(alpha = 0.09f),
+                        Color(0xFFB8D0D8).copy(alpha = 0.11f),
                         Color.Transparent,
                     ),
                     center = wetLight,
@@ -420,6 +411,21 @@ private fun MaterialBackground(theme: AppTheme) {
                 ),
                 center = wetLight,
                 radius = size.width * 0.64f,
+            )
+            drawOval(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF91AEB8).copy(alpha = 0.07f),
+                        Color.Transparent,
+                    ),
+                    center = Offset(size.width * 0.62f, size.height * 0.91f),
+                    radius = size.width * 0.72f,
+                ),
+                topLeft = Offset(-size.width * 0.1f, size.height * 0.82f),
+                size = androidx.compose.ui.geometry.Size(
+                    size.width * 1.2f,
+                    size.height * 0.16f,
+                ),
             )
         }
     }
@@ -447,8 +453,27 @@ fun ProxySurface(
         label = "surface-corner-${role.name.lowercase()}",
     ).value
     val resolvedShape = shape ?: RoundedCornerShape(animatedCornerDp.dp)
-    val top = if (strong) style.strongTop else style.materialTop
-    val bottom = if (strong) style.strongBottom else style.materialBottom
+    val materialFactor = if (style.theme == AppTheme.LIQUID_GLASS) {
+        when (role) {
+            ProxySurfaceRole.CARD -> 0.70f
+            ProxySurfaceRole.INPUT -> 0.82f
+            ProxySurfaceRole.BUTTON -> 1.00f
+            ProxySurfaceRole.OVERLAY -> 1.08f
+        }
+    } else {
+        when (role) {
+            ProxySurfaceRole.CARD -> 0.84f
+            ProxySurfaceRole.INPUT -> 0.90f
+            ProxySurfaceRole.BUTTON -> 1.00f
+            ProxySurfaceRole.OVERLAY -> 1.05f
+        }
+    }
+    fun scaled(color: Color, extra: Float = 1f) = color.copy(
+        alpha = (color.alpha * materialFactor * extra).coerceIn(0f, 1f),
+    )
+    val top = scaled(if (strong) style.strongTop else style.materialTop)
+    val middle = scaled(style.materialMiddle, if (strong) 1.20f else 1f)
+    val bottom = scaled(if (strong) style.strongBottom else style.materialBottom)
     val elevation = when {
         strong && style.theme == AppTheme.LIQUID_GLASS -> 8.dp
         style.theme == AppTheme.LIQUID_GLASS -> 5.dp
@@ -467,7 +492,7 @@ fun ProxySurface(
             .clip(resolvedShape)
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(top, style.materialMiddle, bottom),
+                    colors = listOf(top, middle, bottom),
                 ),
             )
             .drawWithCache {
@@ -519,15 +544,18 @@ fun ProxySurface(
                     }
                     drawContent()
                     if (!liquid) {
-                        repeat(9) { index ->
-                            val y = size.height * (index + 1) / 10f
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.012f),
-                                start = Offset(0f, y),
-                                end = Offset(size.width, y - 1.5f),
-                                strokeWidth = 0.7f,
-                            )
-                        }
+                        drawLine(
+                            color = style.specular.copy(alpha = style.specular.alpha * 0.72f),
+                            start = Offset(size.width * 0.10f, 1.1f),
+                            end = Offset(size.width * 0.58f, 1.1f),
+                            strokeWidth = 1.0f,
+                        )
+                        drawLine(
+                            color = Color.Black.copy(alpha = 0.28f),
+                            start = Offset(size.width * 0.42f, size.height - 1.1f),
+                            end = Offset(size.width * 0.92f, size.height - 1.1f),
+                            strokeWidth = 1.0f,
+                        )
                     } else {
                         drawLine(
                             color = Color.White.copy(alpha = 0.48f),
@@ -561,4 +589,112 @@ fun ProxySurface(
             ),
         content = content,
     )
+}
+
+@Composable
+fun ProxyInsetSurface(
+    modifier: Modifier = Modifier,
+    shape: Shape? = null,
+    role: ProxySurfaceRole = ProxySurfaceRole.CARD,
+    selected: Boolean = false,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val style = LocalProxyVisualStyle.current
+    val shapeSettings = LocalProxyShape.current
+    val cornerDp = when (role) {
+        ProxySurfaceRole.CARD -> shapeSettings.resolvedCardCornerDp
+        ProxySurfaceRole.INPUT -> shapeSettings.resolvedInputCornerDp
+        ProxySurfaceRole.BUTTON -> shapeSettings.resolvedButtonCornerDp
+        ProxySurfaceRole.OVERLAY -> (shapeSettings.globalCornerDp + 6).coerceAtMost(30)
+    }
+    val animatedCornerDp = animateFloatAsState(
+        targetValue = cornerDp.toFloat(),
+        animationSpec = tween(220),
+        label = "inset-corner-${role.name.lowercase()}",
+    ).value
+    val resolvedShape = shape ?: RoundedCornerShape(animatedCornerDp.dp)
+    val fill = if (style.theme == AppTheme.LIQUID_GLASS) {
+        if (selected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f)
+        } else {
+            Color.White.copy(alpha = 0.13f)
+        }
+    } else {
+        if (selected) {
+            Color(0xFF304047).copy(alpha = 0.74f)
+        } else {
+            Color(0xFF11181C).copy(alpha = 0.62f)
+        }
+    }
+    val outline = if (style.theme == AppTheme.LIQUID_GLASS) {
+        Color.White.copy(alpha = if (selected) 0.52f else 0.24f)
+    } else {
+        Color(0xFFBFD3DA).copy(alpha = if (selected) 0.24f else 0.12f)
+    }
+
+    Box(
+        modifier = modifier
+            .clip(resolvedShape)
+            .background(fill)
+            .border(0.7.dp, outline, resolvedShape),
+        content = content,
+    )
+}
+
+@Composable
+fun ProxySettingsFog(
+    selectedTheme: AppTheme,
+    progress: Float,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val amount = progress.coerceIn(0f, 1f)
+        if (amount <= 0f) return@Canvas
+        if (selectedTheme == AppTheme.LIQUID_GLASS) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFF8FAFF).copy(alpha = 0.10f * amount),
+                        Color(0xFFE8EEFA).copy(alpha = 0.30f * amount),
+                        Color.White.copy(alpha = 0.22f * amount),
+                    ),
+                ),
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.24f * amount),
+                        Color(0xFFD9E5FF).copy(alpha = 0.08f * amount),
+                        Color.Transparent,
+                    ),
+                    center = Offset(size.width * 0.50f, size.height * 0.74f),
+                    radius = size.width * 0.92f,
+                ),
+                center = Offset(size.width * 0.50f, size.height * 0.74f),
+                radius = size.width * 0.92f,
+            )
+        } else {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF172126).copy(alpha = 0.24f * amount),
+                        Color(0xFF080C0E).copy(alpha = 0.48f * amount),
+                        Color.Black.copy(alpha = 0.54f * amount),
+                    ),
+                ),
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF8BA7B1).copy(alpha = 0.08f * amount),
+                        Color.Transparent,
+                    ),
+                    center = Offset(size.width * 0.24f, size.height * 0.62f),
+                    radius = size.width * 0.78f,
+                ),
+                center = Offset(size.width * 0.24f, size.height * 0.62f),
+                radius = size.width * 0.78f,
+            )
+        }
+    }
 }
