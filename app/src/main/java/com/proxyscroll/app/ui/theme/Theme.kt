@@ -1,6 +1,7 @@
 package com.proxyscroll.app.ui.theme
 
 import android.app.Activity
+import android.graphics.Bitmap
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
@@ -41,9 +42,17 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -185,6 +194,74 @@ private val GraphiteOilColors = StainPaletteColors(
 
 val LocalStainPaletteColors = staticCompositionLocalOf { AuroraOpalColors }
 
+private class RepeatingGrainBrush(
+    private val image: ImageBitmap,
+) : ShaderBrush() {
+    override fun createShader(size: Size): Shader = ImageShader(
+        image = image,
+        tileModeX = TileMode.Repeated,
+        tileModeY = TileMode.Repeated,
+    )
+}
+
+private fun createMaterialGrainBrush(
+    theme: AppTheme,
+    palette: StainPaletteColors,
+): Brush {
+    // A compact high-frequency spectral tile replaces hundreds of draw calls.
+    // The RGB tint represents inclusions in the material, while rare bright
+    // pixels behave like caustic crystals under grazing light.
+    val edge = 128
+    val pixels = IntArray(edge * edge)
+    val spectrum = arrayOf(
+        palette.primary,
+        palette.secondary,
+        palette.tertiary,
+        palette.caustic,
+        palette.neutral,
+    )
+    var seed = if (theme == AppTheme.LIQUID_GLASS) 0x51F15EED else 0x37A9C2D1
+
+    fun nextNoise(): Int {
+        seed = seed * 1_664_525 + 1_013_904_223
+        return seed ushr 1
+    }
+
+    pixels.indices.forEach { index ->
+        val noise = nextNoise()
+        val occupancy = noise and 0xFF
+        val visibleThreshold = if (theme == AppTheme.LIQUID_GLASS) 188 else 174
+        if (occupancy >= visibleThreshold) return@forEach
+
+        val source = spectrum[(noise ushr 9) % spectrum.size]
+        val caustic = occupancy < 7
+        val lift = if (caustic) {
+            0.62f
+        } else {
+            0.10f + ((noise ushr 17) and 0x0F) / 100f
+        }
+        val alpha = if (caustic) {
+            122 + ((noise ushr 22) and 0x1F)
+        } else {
+            30 + ((noise ushr 21) and 0x23)
+        }
+        val red = ((source.red + (1f - source.red) * lift) * 255f)
+            .roundToInt().coerceIn(0, 255)
+        val green = ((source.green + (1f - source.green) * lift) * 255f)
+            .roundToInt().coerceIn(0, 255)
+        val blue = ((source.blue + (1f - source.blue) * lift) * 255f)
+            .roundToInt().coerceIn(0, 255)
+        pixels[index] = android.graphics.Color.argb(alpha.coerceAtMost(255), red, green, blue)
+    }
+
+    val bitmap = Bitmap.createBitmap(pixels, edge, edge, Bitmap.Config.ARGB_8888)
+    return RepeatingGrainBrush(bitmap.asImageBitmap())
+}
+
+val LocalMaterialGrainBrush = staticCompositionLocalOf<Brush> {
+    SolidColor(Color.Transparent)
+}
+
 enum class ProxySurfaceRole {
     CARD,
     INPUT,
@@ -208,6 +285,12 @@ fun ProxyScrollTheme(
     val stainPalette = animateStainPalette(
         target = paletteFor(selectedTheme, stainSettings.palette),
     )
+    val materialGrainBrush = remember(selectedTheme, stainSettings.palette) {
+        createMaterialGrainBrush(
+            theme = selectedTheme,
+            palette = paletteFor(selectedTheme, stainSettings.palette),
+        )
+    }
     val typographyProgress = animateFloatAsState(
         targetValue = if (selectedTheme == AppTheme.LIQUID_GLASS) 0f else 1f,
         animationSpec = tween(THEME_TRANSITION_MILLIS),
@@ -231,6 +314,7 @@ fun ProxyScrollTheme(
         LocalProxyShape provides interfaceShape,
         LocalStainSettings provides stainSettings.normalized(),
         LocalStainPaletteColors provides stainPalette,
+        LocalMaterialGrainBrush provides materialGrainBrush,
     ) {
         MaterialTheme(
             colorScheme = animatedScheme,
@@ -385,6 +469,7 @@ private fun MaterialBackground(
 ) {
     val settings = LocalStainSettings.current
     val palette = LocalStainPaletteColors.current
+    val materialGrainBrush = LocalMaterialGrainBrush.current
     val transition = rememberInfiniteTransition(label = "ambient-material-motion")
     val drift = transition.animateFloat(
         initialValue = -1f,
@@ -540,47 +625,14 @@ private fun MaterialBackground(
             )
         }
 
-        // Material inclusions sit inside the optical field. Each particle has a
-        // palette-tinted halo and an occasional caustic core, so the moving light
-        // changes its apparent colour instead of reading as flat monochrome noise.
-        val grainCount = if (theme == AppTheme.LIQUID_GLASS) 92 else 76
-        val grainBaseAlpha = if (theme == AppTheme.LIQUID_GLASS) {
-            0.026f * stain
-        } else {
-            0.038f * stain
-        }
-        repeat(grainCount) { index ->
-            val xSeed = ((index * 73 + 19) % 101) / 101f
-            val ySeed = ((index * 47 + 11) % 97) / 97f
-            val sizeSeed = ((index * 29 + 7) % 13) / 13f
-            val direction = if (index % 2 == 0) 1f else -1f
-            val shimmer = (0.78f + activeDrift * direction * 0.16f)
-                .coerceIn(0.58f, 0.96f)
-            val center = Offset(
-                x = (size.width * xSeed + activeDrift * direction * size.width * 0.0028f)
-                    .coerceIn(0f, size.width),
-                y = (size.height * ySeed - activeDrift * direction * size.height * 0.0012f)
-                    .coerceIn(0f, size.height),
-            )
-            val spectralColor = when (index % 4) {
-                0 -> palette.primary
-                1 -> palette.secondary
-                2 -> palette.tertiary
-                else -> palette.caustic
-            }
-            drawCircle(
-                color = spectralColor.copy(alpha = grainBaseAlpha * shimmer),
-                radius = (0.42f + sizeSeed * 0.72f).dp.toPx(),
-                center = center,
-            )
-            if (index % 7 == 0) {
-                drawCircle(
-                    color = palette.caustic.copy(alpha = grainBaseAlpha * 1.75f),
-                    radius = (0.18f + sizeSeed * 0.18f).dp.toPx(),
-                    center = center,
-                )
-            }
-        }
+        drawRect(
+            brush = materialGrainBrush,
+            alpha = if (theme == AppTheme.LIQUID_GLASS) {
+                (0.62f * stain).coerceIn(0.28f, 0.78f)
+            } else {
+                (0.54f * stain).coerceIn(0.26f, 0.66f)
+            },
+        )
     }
 }
 
@@ -592,12 +644,14 @@ fun ProxySurface(
     strong: Boolean = false,
     active: Boolean = false,
     deformContent: Boolean = true,
+    interactive: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val style = LocalProxyVisualStyle.current
     val shapeSettings = LocalProxyShape.current
     val stainSettings = LocalStainSettings.current
     val palette = LocalStainPaletteColors.current
+    val materialGrainBrush = LocalMaterialGrainBrush.current
     val cornerDp = when (role) {
         ProxySurfaceRole.CARD -> shapeSettings.resolvedCardCornerDp
         ProxySurfaceRole.INPUT -> shapeSettings.resolvedInputCornerDp
@@ -711,29 +765,36 @@ fun ProxySurface(
                 spotColor = style.shadow,
             )
             .clip(resolvedShape)
-            .onSizeChanged { surfaceSize = it }
-            .pointerInput(role) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    pressPosition = down.position
-                    materialPressed = true
-                    try {
-                        var pointerPressed = true
-                        while (pointerPressed) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id }
-                            if (change == null) {
-                                pointerPressed = false
-                            } else {
-                                pressPosition = change.position
-                                pointerPressed = change.pressed
+            .then(
+                if (interactive) {
+                    Modifier
+                        .onSizeChanged { surfaceSize = it }
+                        .pointerInput(role) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                pressPosition = down.position
+                                materialPressed = true
+                                try {
+                                    var pointerPressed = true
+                                    while (pointerPressed) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id }
+                                        if (change == null) {
+                                            pointerPressed = false
+                                        } else {
+                                            pressPosition = change.position
+                                            pointerPressed = change.pressed
+                                        }
+                                    }
+                                } finally {
+                                    materialPressed = false
+                                }
                             }
                         }
-                    } finally {
-                        materialPressed = false
-                    }
-                }
-            },
+                } else {
+                    Modifier
+                },
+            ),
     ) {
         Box(
             modifier = Modifier
@@ -871,59 +932,38 @@ fun ProxySurface(
                     center = Offset(size.width * 0.52f, size.height * 0.50f),
                     radius = maxOf(size.width, size.height) * 0.72f,
                 )
-                val grainCount = when (role) {
-                    ProxySurfaceRole.BUTTON -> 22
-                    ProxySurfaceRole.INPUT -> 38
-                    ProxySurfaceRole.CARD -> 54
-                    ProxySurfaceRole.OVERLAY -> 82
-                }
-                val grainPoints = List(grainCount) { index ->
-                    Offset(
-                        x = size.width * (((index * 67 + 23) % 103) / 103f),
-                        y = size.height * (((index * 43 + 17) % 101) / 101f),
-                    )
-                }
-                val grainBaseAlpha = (
-                    (if (liquid) 0.026f else 0.040f) * depthFactor + stainAlpha * 0.028f
-                ) * (0.94f - clarity * 0.44f)
+                val grainOpacity = (
+                    (if (liquid) 0.82f else 0.66f) * depthFactor *
+                        (0.98f - clarity * 0.34f) *
+                        (0.72f + stainSettings.intensity * 0.36f)
+                ).coerceIn(0.30f, 0.92f)
+                val innerRim = Brush.linearGradient(
+                    colors = if (liquid) {
+                        listOf(
+                            Color.White.copy(alpha = 0.72f),
+                            palette.caustic.copy(alpha = 0.52f * depthFactor),
+                            Color.Transparent,
+                            palette.secondary.copy(alpha = 0.28f * depthFactor),
+                            Color.White.copy(alpha = 0.16f),
+                        )
+                    } else {
+                        listOf(
+                            palette.caustic.copy(alpha = 0.34f * depthFactor),
+                            Color.White.copy(alpha = 0.11f),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.46f),
+                        )
+                    },
+                    start = Offset.Zero,
+                    end = Offset(size.width, size.height),
+                )
                 onDrawBehind {
                     drawRect(brush = highlight)
                     drawRect(brush = subglassGlow)
                     drawRect(brush = lens)
                     drawRect(brush = lowerRefraction)
-                    grainPoints.forEachIndexed { index, center ->
-                        val spectralColor = when (index % 4) {
-                            0 -> palette.primary
-                            1 -> palette.secondary
-                            2 -> palette.tertiary
-                            else -> palette.caustic
-                        }
-                        val radiusSeed = ((index * 31 + 9) % 11) / 11f
-                        drawCircle(
-                            color = spectralColor.copy(
-                                alpha = grainBaseAlpha * (0.72f + radiusSeed * 0.40f),
-                            ),
-                            radius = (0.38f + radiusSeed * 0.62f).dp.toPx(),
-                            center = center,
-                        )
-                    }
+                    drawRect(brush = materialGrainBrush, alpha = grainOpacity)
                     drawRect(brush = safetyFrost)
-                    grainPoints.forEachIndexed { index, center ->
-                        if (index % 9 == 0) {
-                            val coreColor = when (index % 3) {
-                                0 -> palette.caustic
-                                1 -> palette.secondary
-                                else -> Color.White
-                            }
-                            drawCircle(
-                                color = coreColor.copy(
-                                    alpha = grainBaseAlpha * (1.28f + clarity * 0.90f),
-                                ),
-                                radius = 0.24.dp.toPx(),
-                                center = center,
-                            )
-                        }
-                    }
                     if (clarity > 0.01f) {
                         drawRect(brush = chromaticTouchBloom)
                         drawRect(brush = touchSpecular)
@@ -936,6 +976,19 @@ fun ProxySurface(
                         },
                         cornerRadius = CornerRadius(morphCornerDp.dp.toPx()),
                         style = Stroke(width = (0.65f + clarity * 0.85f).dp.toPx()),
+                    )
+                    val rimInset = 1.35.dp.toPx()
+                    drawRoundRect(
+                        brush = innerRim,
+                        topLeft = Offset(rimInset, rimInset),
+                        size = Size(
+                            width = (size.width - rimInset * 2f).coerceAtLeast(0f),
+                            height = (size.height - rimInset * 2f).coerceAtLeast(0f),
+                        ),
+                        cornerRadius = CornerRadius(
+                            (morphCornerDp.dp.toPx() - rimInset).coerceAtLeast(0f),
+                        ),
+                        style = Stroke(width = 0.72.dp.toPx()),
                     )
                     if (!liquid) {
                         drawLine(
@@ -1006,6 +1059,7 @@ fun ProxyInsetSurface(
     val shapeSettings = LocalProxyShape.current
     val stainSettings = LocalStainSettings.current
     val palette = LocalStainPaletteColors.current
+    val materialGrainBrush = LocalMaterialGrainBrush.current
     val cornerDp = when (role) {
         ProxySurfaceRole.CARD -> shapeSettings.resolvedCardCornerDp
         ProxySurfaceRole.INPUT -> shapeSettings.resolvedInputCornerDp
@@ -1064,40 +1118,11 @@ fun ProxyInsetSurface(
             .clip(resolvedShape)
             .background(fillBrush)
             .drawWithCache {
-                val grainCount = if (role == ProxySurfaceRole.BUTTON) 14 else 26
-                val grainPoints = List(grainCount) { index ->
-                    Offset(
-                        x = size.width * (((index * 61 + 13) % 97) / 97f),
-                        y = size.height * (((index * 37 + 29) % 89) / 89f),
-                    )
-                }
                 val liquid = style.theme == AppTheme.LIQUID_GLASS
-                val grainAlpha = (if (liquid) 0.024f else 0.038f) *
-                    depthFactor * (if (selected) 1.25f else 1f)
+                val grainAlpha = (if (liquid) 0.68f else 0.58f) *
+                    depthFactor * (if (selected) 1.12f else 1f)
                 onDrawBehind {
-                    grainPoints.forEachIndexed { index, center ->
-                        val spectralColor = when (index % 4) {
-                            0 -> palette.primary
-                            1 -> palette.secondary
-                            2 -> palette.tertiary
-                            else -> palette.caustic
-                        }
-                        val radiusSeed = ((index * 23 + 5) % 9) / 9f
-                        drawCircle(
-                            color = spectralColor.copy(
-                                alpha = grainAlpha * (0.72f + radiusSeed * 0.46f),
-                            ),
-                            radius = (0.34f + radiusSeed * 0.52f).dp.toPx(),
-                            center = center,
-                        )
-                        if (index % 8 == 0) {
-                            drawCircle(
-                                color = palette.caustic.copy(alpha = grainAlpha * 1.45f),
-                                radius = 0.20.dp.toPx(),
-                                center = center,
-                            )
-                        }
-                    }
+                    drawRect(brush = materialGrainBrush, alpha = grainAlpha)
                 }
             }
             .border(0.7.dp, outline, resolvedShape),
