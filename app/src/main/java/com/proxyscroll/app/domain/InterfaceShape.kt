@@ -1,6 +1,6 @@
 package com.proxyscroll.app.domain
 
-const val MIN_INTERFACE_CORNER_DP = 8
+const val MIN_INTERFACE_CORNER_DP = 4
 const val MAX_INTERFACE_CORNER_DP = 24
 
 data class InterfaceShape(
@@ -9,6 +9,8 @@ data class InterfaceShape(
     val inputCornerDp: Int = 12,
     val buttonCornerDp: Int = 16,
     val linked: Boolean = true,
+    /** Theme geometry wins until the user explicitly enables Shape Studio. */
+    val customEnabled: Boolean = false,
 ) {
     val resolvedCardCornerDp: Int
         get() = if (linked) globalCornerDp else cardCornerDp
@@ -57,4 +59,32 @@ data class InterfaceShape(
     fun withButtonCorner(value: Int) = copy(
         buttonCornerDp = value.coerceIn(MIN_INTERFACE_CORNER_DP, MAX_INTERFACE_CORNER_DP),
     )
+}
+
+fun AppTheme.defaultInterfaceShape(): InterfaceShape = when (this) {
+    AppTheme.LIQUID_GLASS -> InterfaceShape(
+        globalCornerDp = 22,
+        cardCornerDp = 20,
+        inputCornerDp = 24,
+        buttonCornerDp = 24,
+        linked = false,
+    )
+    AppTheme.ROYAL_GRAPHITE -> InterfaceShape(
+        globalCornerDp = 13,
+        cardCornerDp = 12,
+        inputCornerDp = 12,
+        buttonCornerDp = 14,
+        linked = false,
+    )
+    AppTheme.OLD_SCROLL -> InterfaceShape(
+        globalCornerDp = 4,
+        cardCornerDp = 4,
+        inputCornerDp = 5,
+        buttonCornerDp = 6,
+        linked = false,
+    )
+}
+
+fun InterfaceShape.resolveFor(theme: AppTheme): InterfaceShape {
+    return if (customEnabled) this else theme.defaultInterfaceShape()
 }
