@@ -35,6 +35,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -97,15 +98,15 @@ data class ProxyVisualStyle(
 
 private val LiquidVisualStyle = ProxyVisualStyle(
     theme = AppTheme.LIQUID_GLASS,
-    materialTop = Color.White.copy(alpha = 0.42f),
-    materialMiddle = Color(0xFFF4F8FF).copy(alpha = 0.20f),
-    materialBottom = Color(0xFFB9CCFF).copy(alpha = 0.17f),
-    strongTop = Color.White.copy(alpha = 0.64f),
-    strongBottom = Color(0xFFC7D7FF).copy(alpha = 0.30f),
+    materialTop = Color.White.copy(alpha = 0.28f),
+    materialMiddle = Color(0xFFF4F8FF).copy(alpha = 0.10f),
+    materialBottom = Color(0xFF9FB8FF).copy(alpha = 0.13f),
+    strongTop = Color.White.copy(alpha = 0.44f),
+    strongBottom = Color(0xFFB8CCFF).copy(alpha = 0.22f),
     rimLight = Color.White.copy(alpha = 0.92f),
-    rimShade = Color(0xFF6A78B8).copy(alpha = 0.26f),
-    specular = Color.White.copy(alpha = 0.48f),
-    shadow = Color(0xFF30437D).copy(alpha = 0.16f),
+    rimShade = Color(0xFF5367B1).copy(alpha = 0.32f),
+    specular = Color.White.copy(alpha = 0.26f),
+    shadow = Color(0xFF30437D).copy(alpha = 0.13f),
     scrim = Color(0xFF172146).copy(alpha = 0.25f),
 )
 
@@ -291,9 +292,9 @@ private fun MaterialBackground(theme: AppTheme) {
             drawRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFF9FBFF),
-                        Color(0xFFE8EDFF),
-                        Color(0xFFEAF7F6),
+                        Color(0xFFF5F8FF),
+                        Color(0xFFDDE5FF),
+                        Color(0xFFDFF5F2),
                     ),
                     start = Offset.Zero,
                     end = Offset(size.width, size.height),
@@ -306,8 +307,8 @@ private fun MaterialBackground(theme: AppTheme) {
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFF6F88FF).copy(alpha = 0.34f),
-                        Color(0xFF9DB5FF).copy(alpha = 0.12f),
+                        Color(0xFF667EFF).copy(alpha = 0.48f),
+                        Color(0xFF9DB5FF).copy(alpha = 0.18f),
                         Color.Transparent,
                     ),
                     center = blue,
@@ -323,7 +324,7 @@ private fun MaterialBackground(theme: AppTheme) {
             drawCircle(
                 brush = Brush.radialGradient(
                     listOf(
-                        Color(0xFF55D5D5).copy(alpha = 0.24f),
+                        Color(0xFF3FD4D4).copy(alpha = 0.34f),
                         Color.Transparent,
                     ),
                     center = aqua,
@@ -337,13 +338,25 @@ private fun MaterialBackground(theme: AppTheme) {
                     colors = listOf(
                         Color.Transparent,
                         Color.White.copy(alpha = 0.26f),
-                        Color(0xFFB98CFF).copy(alpha = 0.11f),
+                        Color(0xFFB270FF).copy(alpha = 0.18f),
                         Color.Transparent,
                     ),
                     start = Offset(size.width * (0.10f + drift * 0.08f), 0f),
                     end = Offset(size.width * (0.72f + drift * 0.08f), size.height),
                 ),
             )
+            repeat(3) { index ->
+                val radius = size.width * (0.46f + index * 0.13f)
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.09f - index * 0.018f),
+                    radius = radius,
+                    center = Offset(
+                        size.width * (0.72f - drift * 0.025f),
+                        size.height * 0.36f,
+                    ),
+                    style = Stroke(width = 1.4f + index * 0.5f),
+                )
+            }
         } else {
             drawRect(
                 brush = Brush.verticalGradient(
@@ -432,22 +445,63 @@ fun ProxySurface(
                 ),
             )
             .drawWithCache {
-                val highlight = Brush.linearGradient(
+                val liquid = style.theme == AppTheme.LIQUID_GLASS
+                val highlight = if (liquid) {
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.22f),
+                            Color.Transparent,
+                            Color(0xFF8EEAF2).copy(alpha = 0.07f),
+                            Color(0xFFD9A8FF).copy(alpha = 0.06f),
+                        ),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, size.height),
+                    )
+                } else {
+                    Brush.linearGradient(
+                        colors = listOf(
+                            style.specular,
+                            Color.Transparent,
+                            style.specular.copy(alpha = style.specular.alpha * 0.32f),
+                        ),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, size.height),
+                    )
+                }
+                val lens = Brush.radialGradient(
                     colors = listOf(
-                        style.specular,
+                        Color.White.copy(alpha = 0.20f),
+                        Color.White.copy(alpha = 0.035f),
                         Color.Transparent,
-                        style.specular.copy(alpha = style.specular.alpha * 0.32f),
                     ),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width, size.height),
+                    center = Offset(size.width * 0.16f, 0f),
+                    radius = size.width * 0.78f,
+                )
+                val lowerRefraction = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.Transparent,
+                        Color(0xFF75DDE8).copy(alpha = 0.055f),
+                        Color(0xFF9B7CFF).copy(alpha = 0.075f),
+                    ),
                 )
                 onDrawWithContent {
-                    drawContent()
                     drawRoundRect(
                         brush = highlight,
                         cornerRadius = CornerRadius(size.minDimension * 0.20f),
                     )
-                    if (style.theme == AppTheme.ROYAL_GRAPHITE) {
+                    if (liquid) {
+                        drawRoundRect(
+                            brush = lens,
+                            cornerRadius = CornerRadius(size.minDimension * 0.20f),
+                        )
+                        drawRoundRect(
+                            brush = lowerRefraction,
+                            cornerRadius = CornerRadius(size.minDimension * 0.20f),
+                        )
+                    }
+                    drawContent()
+                    if (!liquid) {
                         repeat(9) { index ->
                             val y = size.height * (index + 1) / 10f
                             drawLine(
@@ -457,17 +511,34 @@ fun ProxySurface(
                                 strokeWidth = 0.7f,
                             )
                         }
+                    } else {
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.48f),
+                            start = Offset(size.width * 0.18f, 1.2f),
+                            end = Offset(size.width * 0.72f, 1.2f),
+                            strokeWidth = 1.1f,
+                        )
                     }
                 }
             }
             .border(
                 width = 1.dp,
                 brush = Brush.linearGradient(
-                    colors = listOf(
-                        style.rimLight,
-                        style.rimLight.copy(alpha = style.rimLight.alpha * 0.25f),
-                        style.rimShade,
-                    ),
+                    colors = if (style.theme == AppTheme.LIQUID_GLASS) {
+                        listOf(
+                            Color(0xFFFFF0FA).copy(alpha = 0.78f),
+                            style.rimLight,
+                            Color(0xFF9FF4F3).copy(alpha = 0.62f),
+                            Color(0xFFAC8BFF).copy(alpha = 0.34f),
+                            style.rimShade,
+                        )
+                    } else {
+                        listOf(
+                            style.rimLight,
+                            style.rimLight.copy(alpha = style.rimLight.alpha * 0.25f),
+                            style.rimShade,
+                        )
+                    },
                 ),
                 shape = resolvedShape,
             ),
