@@ -80,6 +80,19 @@ class ThemePreferences(
             .apply()
     }
 
+    fun getActiveGroupFilter(): String? {
+        return preferences.getString(KEY_ACTIVE_GROUP_FILTER, null)
+    }
+
+    fun setActiveGroupFilter(groupId: String?) {
+        preferences.edit()
+            .apply {
+                if (groupId == null) remove(KEY_ACTIVE_GROUP_FILTER)
+                else putString(KEY_ACTIVE_GROUP_FILTER, groupId)
+            }
+            .apply()
+    }
+
     private companion object {
         const val KEY_THEME = "selected_theme"
         const val KEY_INPUT_MOTION = "input_motion"
@@ -94,5 +107,6 @@ class ThemePreferences(
         const val KEY_MATERIAL_DEPTH = "material_depth"
         const val KEY_STAIN_MOTION = "stain_motion"
         const val KEY_MATERIAL_MOTION_QUALITY = "material_motion_quality"
+        const val KEY_ACTIVE_GROUP_FILTER = "active_group_filter"
     }
 }
