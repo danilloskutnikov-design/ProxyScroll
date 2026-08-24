@@ -13,7 +13,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -25,6 +24,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -50,7 +50,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -60,12 +59,11 @@ import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -81,7 +79,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -99,18 +96,17 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteSpan
-import com.proxyscroll.app.ui.editor.DISPLAY_NOTE_FONT_SIZE_SP
-import com.proxyscroll.app.ui.editor.LARGE_NOTE_FONT_SIZE_SP
+import com.proxyscroll.app.ui.editor.MAX_NOTE_FONT_SIZE_SP
+import com.proxyscroll.app.ui.editor.MIN_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.RichTextState
-import com.proxyscroll.app.ui.editor.SMALL_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.annotatedText
 import com.proxyscroll.app.ui.theme.LocalProxyVisualStyle
 import com.proxyscroll.app.ui.theme.ProxyScrollTheme
@@ -491,9 +487,17 @@ private fun NoteEditorScreen(
     var hasChanges by remember(note?.id) { mutableStateOf(false) }
     var saveState by remember(note?.id) { mutableStateOf(EditorSaveState.CLEAN) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
-    var inputPulse by remember { mutableIntStateOf(0) }
-    val glow = remember { Animatable(0f) }
     val bodyFocusRequester = remember(note?.id) { FocusRequester() }
+    val bodyInteractionSource = remember(note?.id) { MutableInteractionSource() }
+    val bodyFocused by bodyInteractionSource.collectIsFocusedAsState()
+    val focusGlow by animateFloatAsState(
+        targetValue = if (bodyFocused) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = inputMotion.pulseMillis.coerceAtLeast(90),
+            easing = FastOutSlowInEasing,
+        ),
+        label = "editor-focus-glow",
+    )
     val automaticTitle = remember(richText.value.text) {
         richText.value.text
             .trim()
@@ -532,21 +536,6 @@ private fun NoteEditorScreen(
         if (!hasChanges) return@LaunchedEffect
         delay(inputMotion.autosaveDelayMillis)
         saveNow()
-    }
-
-    LaunchedEffect(inputPulse, inputMotion) {
-        if (inputMotion.pulseMillis == 0 || inputPulse == 0) {
-            glow.snapTo(0f)
-        } else {
-            glow.snapTo(if (inputMotion == InputMotion.FLOWING) 1f else 0.58f)
-            glow.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = inputMotion.pulseMillis,
-                    easing = FastOutSlowInEasing,
-                ),
-            )
-        }
     }
 
     Scaffold(
@@ -614,7 +603,6 @@ private fun NoteEditorScreen(
                 onFormatChanged = {
                     hasChanges = true
                     saveState = EditorSaveState.EDITING
-                    inputPulse++
                 },
             )
         },
@@ -631,7 +619,6 @@ private fun NoteEditorScreen(
                     title = it
                     hasChanges = true
                     saveState = EditorSaveState.EDITING
-                    inputPulse++
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -678,9 +665,9 @@ private fun NoteEditorScreen(
                     .fillMaxWidth()
                     .weight(1f)
                     .drawBehind {
-                        if (glow.value > 0f) {
+                        if (focusGlow > 0f) {
                             drawRoundRect(
-                                color = glowColor.copy(alpha = glow.value * 0.16f),
+                                color = glowColor.copy(alpha = focusGlow * 0.15f),
                                 cornerRadius = CornerRadius(32.dp.toPx()),
                             )
                         }
@@ -694,12 +681,13 @@ private fun NoteEditorScreen(
                         richText.onValueChange(it)
                         hasChanges = true
                         saveState = EditorSaveState.EDITING
-                        inputPulse++
                     },
                     modifier = Modifier
                         .fillMaxSize()
                         .focusRequester(bodyFocusRequester)
                         .padding(horizontal = 20.dp, vertical = 18.dp),
+                    interactionSource = bodyInteractionSource,
+                    visualTransformation = richText.visualTransformation,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
@@ -757,54 +745,123 @@ private fun FormattingToolbar(
     onFormatChanged: () -> Unit,
 ) {
     ProxySurface(modifier = modifier.fillMaxWidth(), strong = true) {
-        Row(
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FormatButton(
-                selected = richText.boldActive,
-                onClick = {
-                    richText.toggleBold()
-                    onFormatChanged()
-                },
+        Column {
+            AnimatedVisibility(
+                visible = richText.hasSelection,
+                enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 2 },
+                exit = fadeOut(tween(130)) + slideOutVertically(tween(170)) { it / 2 },
             ) {
-                Icon(Icons.Default.FormatBold, contentDescription = "Жирный")
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(start = 14.dp, end = 10.dp, top = 9.dp, bottom = 7.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.width(118.dp)) {
+                            Text(
+                                text = "Фрагмент · ${richText.selectionLength}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                text = richText.selectedPreview.ifBlank { "Выделено" },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        SelectionLensButton("Слово", richText::selectWord)
+                        SelectionLensButton("Фраза", richText::selectSentence)
+                        SelectionLensButton("Абзац", richText::selectParagraph)
+                    }
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+                    )
+                }
             }
-            FormatButton(
-                selected = richText.underlineActive,
-                onClick = {
-                    richText.toggleUnderline()
-                    onFormatChanged()
-                },
-            ) {
-                Icon(Icons.Default.FormatUnderlined, contentDescription = "Подчёркнутый")
-            }
-            FormatButton(
-                selected = richText.strikethroughActive,
-                onClick = {
-                    richText.toggleStrikethrough()
-                    onFormatChanged()
-                },
-            ) {
-                Icon(Icons.Default.FormatStrikethrough, contentDescription = "Зачёркнутый")
-            }
-            Box(
+            Row(
                 modifier = Modifier
-                    .height(28.dp)
-                    .width(1.dp)
-                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
-            )
-            FontSizeButton(
-                activeSize = richText.activeFontSizeSp,
-                onSizeSelected = {
-                    richText.setFontSize(it)
-                    onFormatChanged()
-                },
-            )
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FormatButton(
+                    selected = richText.boldActive,
+                    onClick = {
+                        richText.toggleBold()
+                        onFormatChanged()
+                    },
+                ) {
+                    Icon(Icons.Default.FormatBold, contentDescription = "Жирный")
+                }
+                FormatButton(
+                    selected = richText.underlineActive,
+                    onClick = {
+                        richText.toggleUnderline()
+                        onFormatChanged()
+                    },
+                ) {
+                    Icon(Icons.Default.FormatUnderlined, contentDescription = "Подчёркнутый")
+                }
+                FormatButton(
+                    selected = richText.strikethroughActive,
+                    onClick = {
+                        richText.toggleStrikethrough()
+                        onFormatChanged()
+                    },
+                ) {
+                    Icon(Icons.Default.FormatStrikethrough, contentDescription = "Зачёркнутый")
+                }
+                Box(
+                    modifier = Modifier
+                        .height(28.dp)
+                        .width(1.dp)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+                )
+                FontSizeControl(
+                    activeSize = richText.activeFontSizeSp,
+                    onDecrease = {
+                        richText.adjustFontSize(-2)
+                        onFormatChanged()
+                    },
+                    onIncrease = {
+                        richText.adjustFontSize(2)
+                        onFormatChanged()
+                    },
+                    onCustomSize = {
+                        richText.setFontSize(it)
+                        onFormatChanged()
+                    },
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun SelectionLensButton(
+    label: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f))
+            .animatedClick(onClick = onClick, pressedScale = 0.92f)
+            .padding(horizontal = 11.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
     }
 }
 
@@ -833,49 +890,101 @@ private fun FormatButton(
 }
 
 @Composable
-private fun FontSizeButton(
-    activeSize: Int,
-    onSizeSelected: (Int) -> Unit,
+private fun FontSizeControl(
+    activeSize: Int?,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+    onCustomSize: (Int) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
+    var showCustomDialog by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .animatedClick(onClick = onDecrease, pressedScale = 0.86f),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Remove, contentDescription = "Уменьшить на 2")
+        }
         Row(
             modifier = Modifier
-                .height(44.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .animatedClick(onClick = { expanded = true }, pressedScale = 0.94f)
-                .padding(horizontal = 10.dp),
+                .height(40.dp)
+                .animatedClick(
+                    onClick = { showCustomDialog = true },
+                    pressedScale = 0.94f,
+                )
+                .padding(horizontal = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Default.FormatSize, contentDescription = null)
+            Icon(Icons.Default.FormatSize, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(4.dp))
-            Text("$activeSize", fontSize = 13.sp)
-            Icon(Icons.Default.ArrowDropDown, contentDescription = "Размер текста")
+            Text(
+                text = activeSize?.toString() ?: "mix",
+                style = MaterialTheme.typography.labelLarge,
+            )
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .animatedClick(onClick = onIncrease, pressedScale = 0.86f),
+            contentAlignment = Alignment.Center,
         ) {
-            listOf(
-                SMALL_NOTE_FONT_SIZE_SP to "Мелкий",
-                19 to "Обычный",
-                LARGE_NOTE_FONT_SIZE_SP to "Крупный",
-                DISPLAY_NOTE_FONT_SIZE_SP to "Заголовок",
-            ).forEach { (size, label) ->
-                DropdownMenuItem(
-                    text = { Text("$label · $size") },
-                    leadingIcon = {
-                        if (activeSize == size) {
-                            Icon(Icons.Default.Check, contentDescription = null)
-                        }
-                    },
-                    onClick = {
-                        onSizeSelected(size)
-                        expanded = false
-                    },
-                )
-            }
+            Icon(Icons.Default.Add, contentDescription = "Увеличить на 2")
         }
+    }
+
+    if (showCustomDialog) {
+        var customSize by remember(activeSize) {
+            mutableStateOf((activeSize ?: 19).toString())
+        }
+        AlertDialog(
+            onDismissRequest = { showCustomDialog = false },
+            title = { Text("Точный размер текста") },
+            text = {
+                Column {
+                    Text(
+                        text = "От $MIN_NOTE_FONT_SIZE_SP до $MAX_NOTE_FONT_SIZE_SP sp",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = customSize,
+                        onValueChange = { value ->
+                            customSize = value.filter(Char::isDigit).take(2)
+                        },
+                        singleLine = true,
+                        label = { Text("Размер") },
+                        suffix = { Text("sp") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomDialog = false }) {
+                    Text("Отмена")
+                }
+            },
+            confirmButton = {
+                val parsedSize = customSize.toIntOrNull()
+                TextButton(
+                    enabled = parsedSize != null &&
+                        parsedSize in MIN_NOTE_FONT_SIZE_SP..MAX_NOTE_FONT_SIZE_SP,
+                    onClick = {
+                        parsedSize?.let(onCustomSize)
+                        showCustomDialog = false
+                    },
+                ) {
+                    Text("Применить")
+                }
+            },
+        )
     }
 }
 
@@ -930,7 +1039,7 @@ private fun SettingsSheet(
             Text("Плавность ввода", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "Настраивает световой отклик и ритм автосохранения",
+                text = "Настраивает движение фокуса и ритм автосохранения",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -962,7 +1071,7 @@ private fun SettingsSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f))
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "ProxyScroll 0.3.1-alpha04",
+                text = "ProxyScroll 0.4.0-alpha05",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
