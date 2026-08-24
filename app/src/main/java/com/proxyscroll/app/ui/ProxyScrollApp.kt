@@ -144,6 +144,7 @@ import com.proxyscroll.app.ui.editor.RichTextState
 import com.proxyscroll.app.ui.editor.annotatedText
 import com.proxyscroll.app.ui.theme.LocalProxyShape
 import com.proxyscroll.app.ui.theme.LocalStainSettings
+import com.proxyscroll.app.ui.theme.ProxyBrandLockup
 import com.proxyscroll.app.ui.theme.ProxyScrollTheme
 import com.proxyscroll.app.ui.theme.ProxyInsetSurface
 import com.proxyscroll.app.ui.theme.ProxySettingsFog
@@ -369,10 +370,7 @@ private fun NotesScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Text(
-                        text = "ProxyScroll",
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    ProxyBrandLockup()
                 },
                 actions = {
                     ProxySurface(
@@ -1714,7 +1712,7 @@ private fun SettingsSheet(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "ProxyScroll · 0.5.7-alpha13",
+                    text = "ProxyScroll · 0.5.8-alpha14",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
