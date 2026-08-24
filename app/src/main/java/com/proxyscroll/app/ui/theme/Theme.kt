@@ -69,6 +69,7 @@ import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InterfaceShape
 import com.proxyscroll.app.domain.StainPalette
 import com.proxyscroll.app.domain.StainSettings
+import kotlin.math.roundToInt
 
 private const val THEME_TRANSITION_MILLIS = 720
 
