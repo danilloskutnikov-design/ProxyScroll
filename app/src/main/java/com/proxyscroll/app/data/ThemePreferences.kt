@@ -4,6 +4,10 @@ import android.content.SharedPreferences
 import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.InterfaceShape
+import com.proxyscroll.app.domain.MaterialDepth
+import com.proxyscroll.app.domain.StainMotion
+import com.proxyscroll.app.domain.StainPalette
+import com.proxyscroll.app.domain.StainSettings
 
 class ThemePreferences(
     private val preferences: SharedPreferences,
@@ -49,6 +53,26 @@ class ThemePreferences(
             .apply()
     }
 
+    fun getStainSettings(): StainSettings {
+        val defaults = StainSettings()
+        return StainSettings(
+            palette = StainPalette.fromStorage(preferences.getString(KEY_STAIN_PALETTE, null)),
+            intensity = preferences.getFloat(KEY_STAIN_INTENSITY, defaults.intensity),
+            depth = MaterialDepth.fromStorage(preferences.getString(KEY_MATERIAL_DEPTH, null)),
+            motion = StainMotion.fromStorage(preferences.getString(KEY_STAIN_MOTION, null)),
+        ).normalized()
+    }
+
+    fun setStainSettings(settings: StainSettings) {
+        val normalized = settings.normalized()
+        preferences.edit()
+            .putString(KEY_STAIN_PALETTE, normalized.palette.storageKey)
+            .putFloat(KEY_STAIN_INTENSITY, normalized.intensity)
+            .putString(KEY_MATERIAL_DEPTH, normalized.depth.storageKey)
+            .putString(KEY_STAIN_MOTION, normalized.motion.storageKey)
+            .apply()
+    }
+
     private companion object {
         const val KEY_THEME = "selected_theme"
         const val KEY_INPUT_MOTION = "input_motion"
@@ -57,5 +81,9 @@ class ThemePreferences(
         const val KEY_INPUT_CORNER = "input_corner_dp"
         const val KEY_BUTTON_CORNER = "button_corner_dp"
         const val KEY_CORNERS_LINKED = "corners_linked"
+        const val KEY_STAIN_PALETTE = "stain_palette"
+        const val KEY_STAIN_INTENSITY = "stain_intensity"
+        const val KEY_MATERIAL_DEPTH = "material_depth"
+        const val KEY_STAIN_MOTION = "stain_motion"
     }
 }

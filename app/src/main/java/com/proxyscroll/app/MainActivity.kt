@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -13,6 +14,7 @@ import com.proxyscroll.app.data.PreferencesNotesRepository
 import com.proxyscroll.app.data.ThemePreferences
 import com.proxyscroll.app.ui.NotesViewModel
 import com.proxyscroll.app.ui.ProxyScrollApp
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,6 +37,13 @@ class MainActivity : ComponentActivity() {
             var interfaceShape by remember {
                 mutableStateOf(themePreferences.getInterfaceShape())
             }
+            var stainSettings by remember {
+                mutableStateOf(themePreferences.getStainSettings())
+            }
+            LaunchedEffect(stainSettings) {
+                delay(320)
+                themePreferences.setStainSettings(stainSettings)
+            }
             val notesViewModel: NotesViewModel = viewModel(
                 factory = NotesViewModel.Factory(repository),
             )
@@ -54,6 +63,10 @@ class MainActivity : ComponentActivity() {
                 onInterfaceShapeChanged = { shape ->
                     interfaceShape = shape
                     themePreferences.setInterfaceShape(shape)
+                },
+                stainSettings = stainSettings,
+                onStainSettingsChanged = { settings ->
+                    stainSettings = settings
                 },
             )
         }

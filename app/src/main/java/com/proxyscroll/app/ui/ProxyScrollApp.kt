@@ -129,15 +129,22 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.InterfaceShape
+import com.proxyscroll.app.domain.MaterialDepth
+import com.proxyscroll.app.domain.MAX_STAIN_INTENSITY
+import com.proxyscroll.app.domain.MIN_STAIN_INTENSITY
 import com.proxyscroll.app.domain.MAX_INTERFACE_CORNER_DP
 import com.proxyscroll.app.domain.MIN_INTERFACE_CORNER_DP
 import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteSpan
+import com.proxyscroll.app.domain.StainMotion
+import com.proxyscroll.app.domain.StainPalette
+import com.proxyscroll.app.domain.StainSettings
 import com.proxyscroll.app.ui.editor.MAX_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.MIN_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.RichTextState
 import com.proxyscroll.app.ui.editor.annotatedText
 import com.proxyscroll.app.ui.theme.LocalProxyShape
+import com.proxyscroll.app.ui.theme.LocalStainSettings
 import com.proxyscroll.app.ui.theme.ProxyScrollTheme
 import com.proxyscroll.app.ui.theme.ProxyInsetSurface
 import com.proxyscroll.app.ui.theme.ProxySettingsFog
@@ -159,6 +166,8 @@ fun ProxyScrollApp(
     onInputMotionSelected: (InputMotion) -> Unit,
     interfaceShape: InterfaceShape,
     onInterfaceShapeChanged: (InterfaceShape) -> Unit,
+    stainSettings: StainSettings,
+    onStainSettingsChanged: (StainSettings) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -166,6 +175,7 @@ fun ProxyScrollApp(
     var editorOpen by remember { mutableStateOf(false) }
     var editorNote by remember { mutableStateOf<Note?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    var typingQuiet by remember { mutableStateOf(false) }
     val settingsFogProgress by animateFloatAsState(
         targetValue = if (showSettings && !editorOpen) 1f else 0f,
         animationSpec = tween(520, easing = FastOutSlowInEasing),
@@ -185,6 +195,7 @@ fun ProxyScrollApp(
     ProxyScrollTheme(
         selectedTheme = selectedTheme,
         interfaceShape = interfaceShape,
+        stainSettings = stainSettings,
     ) {
         Box(Modifier.fillMaxSize()) {
             Box(
@@ -201,6 +212,7 @@ fun ProxyScrollApp(
             ) {
                 ProxyThemeBackground(
                     selectedTheme = selectedTheme,
+                    motionQuiet = typingQuiet || (showSettings && !editorOpen),
                     modifier = Modifier.fillMaxSize(),
                 )
                 AnimatedContent(
@@ -236,6 +248,7 @@ fun ProxyScrollApp(
                                 }
                             },
                             onClose = { editorOpen = false },
+                            onTypingQuietChanged = { typingQuiet = it },
                         )
                     } else {
                         NotesScreen(
@@ -270,6 +283,8 @@ fun ProxyScrollApp(
                     onInputMotionSelected = onInputMotionSelected,
                     interfaceShape = interfaceShape,
                     onInterfaceShapeChanged = onInterfaceShapeChanged,
+                    stainSettings = stainSettings,
+                    onStainSettingsChanged = onStainSettingsChanged,
                     onDismiss = { showSettings = false },
                 )
             }
@@ -614,6 +629,7 @@ private fun NoteEditorScreen(
     onSave: (Note?, String, String, List<NoteSpan>) -> Note?,
     onDelete: (Note) -> Unit,
     onClose: () -> Unit,
+    onTypingQuietChanged: (Boolean) -> Unit,
 ) {
     var savedNote by remember(note?.id) { mutableStateOf(note) }
     var title by remember(note?.id) { mutableStateOf(note?.title.orEmpty()) }
@@ -673,6 +689,7 @@ private fun NoteEditorScreen(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             saveBeforeBackground()
+            onTypingQuietChanged(false)
         }
     }
 
@@ -687,6 +704,13 @@ private fun NoteEditorScreen(
         if (!hasChanges) return@LaunchedEffect
         delay(inputMotion.autosaveDelayMillis)
         saveNow()
+    }
+
+    LaunchedEffect(title, richText.revision) {
+        if (!hasChanges) return@LaunchedEffect
+        onTypingQuietChanged(true)
+        delay(600)
+        onTypingQuietChanged(false)
     }
 
     Scaffold(
@@ -1325,6 +1349,8 @@ private fun SettingsSheet(
     onInputMotionSelected: (InputMotion) -> Unit,
     interfaceShape: InterfaceShape,
     onInterfaceShapeChanged: (InterfaceShape) -> Unit,
+    stainSettings: StainSettings,
+    onStainSettingsChanged: (StainSettings) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetCorner = (interfaceShape.globalCornerDp + 8).coerceAtMost(32).dp
@@ -1401,6 +1427,94 @@ private fun SettingsSheet(
                     )
                 }
                 Spacer(Modifier.height(22.dp))
+                Text("Цвет внутри стекла", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = if (selectedTheme == AppTheme.LIQUID_GLASS) {
+                        "Единое световое поле проходит через все поверхности"
+                    } else {
+                        "Graphite Oil — холодные цветные включения под мокрым камнем"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                if (selectedTheme == AppTheme.LIQUID_GLASS) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        StainPalette.entries.forEach { palette ->
+                            StainPaletteOption(
+                                palette = palette,
+                                selected = stainSettings.palette == palette,
+                                onClick = {
+                                    onStainSettingsChanged(stainSettings.copy(palette = palette))
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                } else {
+                    GraphiteOilBadge()
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Интенсивность", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = "${(stainSettings.intensity * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Slider(
+                    value = stainSettings.intensity,
+                    onValueChange = {
+                        onStainSettingsChanged(stainSettings.copy(intensity = it))
+                    },
+                    valueRange = MIN_STAIN_INTENSITY..MAX_STAIN_INTENSITY,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("Глубина материала", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    MaterialDepth.entries.forEach { depth ->
+                        MotionOption(
+                            label = depth.displayName,
+                            selected = stainSettings.depth == depth,
+                            onClick = {
+                                onStainSettingsChanged(stainSettings.copy(depth = depth))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text("Дыхание света", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    StainMotion.entries.forEach { motion ->
+                        MotionOption(
+                            label = motion.displayName,
+                            selected = stainSettings.motion == motion,
+                            onClick = {
+                                onStainSettingsChanged(stainSettings.copy(motion = motion))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                ShapeLivePreview(interfaceShape)
+                Spacer(Modifier.height(22.dp))
                 Text("Форма интерфейса", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -1408,8 +1522,6 @@ private fun SettingsSheet(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(12.dp))
-                ShapeLivePreview(interfaceShape)
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth()) {
                     Text("Характер углов", style = MaterialTheme.typography.titleMedium)
@@ -1583,11 +1695,119 @@ private fun SettingsSheet(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "ProxyScroll · 0.5.2-alpha08",
+                    text = "ProxyScroll · 0.5.3-alpha09",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun StainPaletteOption(
+    palette: StainPalette,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = when (palette) {
+        StainPalette.AURORA_OPAL -> listOf(
+            Color(0xFF6F7BF7),
+            Color(0xFF71D9E8),
+            Color(0xFFC8A9FF),
+        )
+        StainPalette.CORAL_GLACIER -> listOf(
+            Color(0xFFFF8F88),
+            Color(0xFF80D8F3),
+            Color(0xFFA8A7FF),
+        )
+        StainPalette.NORDIC_BLOOM -> listOf(
+            Color(0xFF5FD0B5),
+            Color(0xFF6C91E8),
+            Color(0xFFC38FD8),
+        )
+    }
+    ProxyInsetSurface(
+        modifier = modifier
+            .height(82.dp)
+            .animatedClick(onClick = onClick, pressedScale = 0.95f),
+        role = ProxySurfaceRole.BUTTON,
+        selected = selected,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Canvas(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.56f),
+                        shape = CircleShape,
+                    ),
+            ) {
+                drawCircle(
+                    brush = Brush.sweepGradient(colors + colors.first()),
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color.White.copy(alpha = 0.70f), Color.Transparent),
+                        center = Offset(size.width * 0.28f, size.height * 0.22f),
+                        radius = size.width * 0.62f,
+                    ),
+                )
+            }
+            Spacer(Modifier.height(5.dp))
+            Text(
+                text = palette.displayName,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun GraphiteOilBadge() {
+    ProxyInsetSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(68.dp),
+        role = ProxySurfaceRole.CARD,
+        selected = true,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ThemeSwatch(
+                theme = AppTheme.ROYAL_GRAPHITE,
+                modifier = Modifier.size(42.dp),
+            )
+            Column(Modifier.weight(1f)) {
+                Text("Graphite Oil", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "Сталь · нефть · северный свет",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.Default.CheckCircle,
+                contentDescription = "Активная палитра",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
@@ -1658,7 +1878,7 @@ private fun ShapeLivePreview(shapeSettings: InterfaceShape) {
     ) {
         Column(Modifier.padding(14.dp)) {
             Text(
-                text = "LIVE PREVIEW",
+                text = "LIVE MATERIAL PREVIEW",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1912,6 +2132,24 @@ private fun ThemeSwatch(
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(18.dp)
+    val stainSettings = LocalStainSettings.current
+    val liquidColors = when (stainSettings.palette) {
+        StainPalette.AURORA_OPAL -> listOf(
+            Color(0xFF6F7BF7),
+            Color(0xFF71D9E8),
+            Color(0xFFC8A9FF),
+        )
+        StainPalette.CORAL_GLACIER -> listOf(
+            Color(0xFFFF8F88),
+            Color(0xFF80D8F3),
+            Color(0xFFA8A7FF),
+        )
+        StainPalette.NORDIC_BLOOM -> listOf(
+            Color(0xFF5FD0B5),
+            Color(0xFF6C91E8),
+            Color(0xFFC38FD8),
+        )
+    }
     Canvas(
         modifier = modifier
             .size(66.dp)
@@ -1921,13 +2159,18 @@ private fun ThemeSwatch(
         if (theme == AppTheme.LIQUID_GLASS) {
             drawRect(
                 brush = Brush.linearGradient(
-                    listOf(Color(0xFFE7EDFF), Color(0xFFC8F0EF)),
+                    listOf(Color(0xFFF6F8FF), Color(0xFFEAF2F5)),
                 ),
             )
             drawCircle(
-                color = Color(0xFF6E7BE9).copy(alpha = 0.45f),
+                color = liquidColors[0].copy(alpha = 0.52f),
                 radius = size.width * 0.48f,
                 center = Offset(size.width * 0.18f, size.height * 0.18f),
+            )
+            drawCircle(
+                color = liquidColors[1].copy(alpha = 0.34f),
+                radius = size.width * 0.44f,
+                center = Offset(size.width * 0.86f, size.height * 0.72f),
             )
             drawCircle(
                 brush = Brush.radialGradient(
