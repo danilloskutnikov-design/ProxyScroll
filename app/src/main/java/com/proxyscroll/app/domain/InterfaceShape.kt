@@ -84,14 +84,18 @@ fun AppTheme.defaultInterfaceShape(): InterfaceShape = when (this) {
         linked = false,
     )
     AppTheme.LITE_LIFE -> InterfaceShape(
-        globalCornerDp = 8,
-        cardCornerDp = 7,
-        inputCornerDp = 10,
-        buttonCornerDp = 18,
+        globalCornerDp = 0,
+        cardCornerDp = 0,
+        inputCornerDp = 0,
+        buttonCornerDp = 0,
         linked = false,
     )
 }
 
 fun InterfaceShape.resolveFor(theme: AppTheme): InterfaceShape {
-    return if (customEnabled) this else theme.defaultInterfaceShape()
+    return when {
+        theme == AppTheme.LITE_LIFE -> theme.defaultInterfaceShape()
+        customEnabled -> this
+        else -> theme.defaultInterfaceShape()
+    }
 }
