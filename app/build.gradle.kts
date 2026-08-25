@@ -12,8 +12,8 @@ android {
         applicationId = "com.proxyscroll.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "0.11.0-alpha24"
+        versionCode = 25
+        versionName = "0.12.0-alpha25"
     }
 
     val alphaKeystore = file("proxyscroll-alpha.keystore")
@@ -39,7 +39,7 @@ android {
             initWith(getByName("debug"))
             applicationIdSuffix = ".preview"
             versionNameSuffix = "-sidecar"
-            resValue("string", "app_name", "ProxyScroll 0.10")
+            resValue("string", "app_name", "ProxyScroll 0.12")
             matchingFallbacks += listOf("debug")
         }
         release {

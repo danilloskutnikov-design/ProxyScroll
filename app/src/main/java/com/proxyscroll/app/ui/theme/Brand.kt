@@ -77,6 +77,21 @@ private fun ProxyBrandMark(
     val liquid = style.theme == AppTheme.LIQUID_GLASS
     val oldScroll = style.theme == AppTheme.OLD_SCROLL
     val liteLife = style.theme == AppTheme.LITE_LIFE
+    if (liteLife) {
+        val flatBrandColor = MaterialTheme.colorScheme.primary
+        Canvas(modifier) {
+            val scaleX = size.width / 512f
+            val scaleY = size.height / 512f
+            withTransform({ scale(scaleX, scaleY, pivot = Offset.Zero) }) {
+                drawPath(
+                    path = ProxyBrandMarkPath,
+                    color = flatBrandColor,
+                    style = Stroke(72f, cap = StrokeCap.Butt, join = StrokeJoin.Miter),
+                )
+            }
+        }
+        return
+    }
     val bodyColors = when (style.theme) {
         AppTheme.LIQUID_GLASS -> listOf(
             palette.primary,
@@ -224,6 +239,14 @@ private fun ProxyBrandWordmark(
         fontSize = 18.sp,
         letterSpacing = (-0.7).sp,
     )
+    if (liteLife) {
+        Text(
+            text = "ProxyScroll",
+            style = textStyle,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        return
+    }
     val body = Brush.linearGradient(
         colors = when (style.theme) {
             AppTheme.LIQUID_GLASS -> listOf(
@@ -233,10 +256,10 @@ private fun ProxyBrandWordmark(
                 palette.tertiary,
             )
             AppTheme.ROYAL_GRAPHITE -> listOf(
-                palette.caustic,
-                palette.primary,
-                Color(0xFF6D7880),
-                palette.secondary,
+                Color(0xFFF4F7F8),
+                Color(0xFFD7E2E6),
+                Color(0xFFB8CCD3),
+                Color(0xFFEAF1F3),
             )
             AppTheme.OLD_SCROLL -> listOf(
                 Color(0xFF5B3D22),

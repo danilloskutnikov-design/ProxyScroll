@@ -1,6 +1,6 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes app for Android. The current build is **0.11.0-alpha24**.
+ProxyScroll is an offline-first notes app for Android. The current build is **0.12.0-alpha25**.
 
 ## Alpha features
 
@@ -83,6 +83,12 @@ ProxyScroll is an offline-first notes app for Android. The current build is **0.
 - Full group selection inside the editor, including custom groups and an explicit ungrouped state
 - Persistent group filter restored after restarting the app, with safe fallback after deletion
 - Cleaner LiteLife editor focus with restrained surfaces and no decorative typing trail
+- Strict LiteLife geometry with zero-radius cards, inputs, buttons, overlays, and colour tiles
+- Static LiteLife rendering with flat fills and no glow, deformation, optical drift, or press springs
+- Brighter semantic text roles across Royal Graphite and LiteLife dark palettes
+- On-demand group palette that stays hidden until the filter control is opened
+- Soft liquid group drops with press deformation and a colour wave that spreads from the touch point
+- Flat square group colours in LiteLife instead of volumetric liquid orbs
 
 ## Storage and compatibility
 
@@ -92,7 +98,7 @@ The UI depends on the domain repository contract rather than its SharedPreferenc
 
 ## Build
 
-GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.11.0-alpha24-update.apk` to update the normal package while keeping local notes. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.11.0-alpha24-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.11.0-alpha24-installers` artifact and support Android 8.0 or newer.
+GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.12.0-alpha25-update.apk` to update the normal package while keeping local notes. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.12.0-alpha25-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.12.0-alpha25-installers` artifact and support Android 8.0 or newer.
 
 Alpha APKs use a repository-local debug-only signing key so later Alpha builds can update in place without erasing local notes. This key must never be used for a production release.
 
