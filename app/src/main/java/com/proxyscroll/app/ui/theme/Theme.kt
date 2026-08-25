@@ -24,8 +24,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.RectangleShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -106,11 +108,11 @@ private val RoyalGraphiteColors = darkColorScheme(
     secondary = Color(0xFF9FACB3),
     onSecondary = Color(0xFF172126),
     background = Color(0xFF080B0D),
-    onBackground = Color(0xFFE9EEF0),
+    onBackground = Color(0xFFF4F7F8),
     surface = Color(0xFF12171A),
-    onSurface = Color(0xFFE9EEF0),
+    onSurface = Color(0xFFF4F7F8),
     surfaceVariant = Color(0xFF20272B),
-    onSurfaceVariant = Color(0xFFB9C3C8),
+    onSurfaceVariant = Color(0xFFD0D8DC),
     outline = Color(0xFF69767D),
     error = Color(0xFFFFB4AB),
 )
@@ -140,11 +142,11 @@ private val LiteLifeColors = darkColorScheme(
     secondary = Color(0xFF8AA8CC),
     onSecondary = Color(0xFF10243B),
     background = Color(0xFF101115),
-    onBackground = Color(0xFFF1F3F7),
+    onBackground = Color(0xFFF7F8FA),
     surface = Color(0xFF1A1D23),
-    onSurface = Color(0xFFF1F3F7),
+    onSurface = Color(0xFFF7F8FA),
     surfaceVariant = Color(0xFF22262E),
-    onSurfaceVariant = Color(0xFF9A9FA9),
+    onSurfaceVariant = Color(0xFFC5CAD2),
     outline = Color(0xFF434852),
     error = Color(0xFFFF6B74),
 )
@@ -207,16 +209,16 @@ private val OldScrollVisualStyle = ProxyVisualStyle(
 
 private val LiteLifeVisualStyle = ProxyVisualStyle(
     theme = AppTheme.LITE_LIFE,
-    materialTop = Color(0xFF242830).copy(alpha = 0.96f),
-    materialMiddle = Color(0xFF1C1F25).copy(alpha = 0.98f),
-    materialBottom = Color(0xFF191B20).copy(alpha = 0.98f),
-    strongTop = Color(0xFF29313D).copy(alpha = 0.98f),
-    strongBottom = Color(0xFF1D222A).copy(alpha = 0.98f),
-    rimLight = Color.White.copy(alpha = 0.07f),
-    rimShade = Color.Black.copy(alpha = 0.22f),
-    specular = Color.White.copy(alpha = 0.035f),
-    shadow = Color.Black.copy(alpha = 0.20f),
-    scrim = Color.Black.copy(alpha = 0.48f),
+    materialTop = Color(0xFF1A1D23),
+    materialMiddle = Color(0xFF1A1D23),
+    materialBottom = Color(0xFF1A1D23),
+    strongTop = Color(0xFF232831),
+    strongBottom = Color(0xFF232831),
+    rimLight = Color.Transparent,
+    rimShade = Color.Transparent,
+    specular = Color.Transparent,
+    shadow = Color.Transparent,
+    scrim = Color(0xFF101115),
 )
 
 val LocalProxyVisualStyle = staticCompositionLocalOf { LiquidVisualStyle }
@@ -538,11 +540,34 @@ fun ProxyScrollTheme(
             }
         }
     }
-    val animatedScheme = animateScheme(targetScheme)
-    val visualStyle = animateVisualStyle(selectedTheme)
-    val stainPalette = animateStainPalette(
-        target = paletteFor(selectedTheme, stainSettings.palette),
-    )
+    val effectiveMotionProfile = if (selectedTheme == AppTheme.LITE_LIFE) {
+        MaterialMotionProfile(
+            deformation = 0f,
+            opticalDrift = 0f,
+            trail = 0f,
+            textureAlpha = 0f,
+        )
+    } else {
+        motionProfile
+    }
+    val animatedScheme = if (
+        selectedTheme == AppTheme.ROYAL_GRAPHITE || selectedTheme == AppTheme.LITE_LIFE
+    ) {
+        targetScheme
+    } else {
+        animateScheme(targetScheme)
+    }
+    val visualStyle = if (selectedTheme == AppTheme.LITE_LIFE) {
+        LiteLifeVisualStyle
+    } else {
+        animateVisualStyle(selectedTheme)
+    }
+    val targetStainPalette = paletteFor(selectedTheme, stainSettings.palette)
+    val stainPalette = if (selectedTheme == AppTheme.LITE_LIFE) {
+        targetStainPalette
+    } else {
+        animateStainPalette(target = targetStainPalette)
+    }
     val materialMicrostructure = remember(selectedTheme, stainSettings.palette) {
         if (selectedTheme == AppTheme.LITE_LIFE) {
             MaterialMicrostructure(
@@ -569,16 +594,21 @@ fun ProxyScrollTheme(
             )
         }
     }
-    val typographyProgress = animateFloatAsState(
-        targetValue = when (selectedTheme) {
+    val targetTypographyProgress = when (selectedTheme) {
             AppTheme.LIQUID_GLASS -> 0f
             AppTheme.ROYAL_GRAPHITE -> 1f
             AppTheme.OLD_SCROLL -> 0.38f
             AppTheme.LITE_LIFE -> 0.72f
-        },
-        animationSpec = tween(THEME_TRANSITION_MILLIS),
-        label = "typography-material-transition",
-    ).value
+    }
+    val typographyProgress = if (selectedTheme == AppTheme.LITE_LIFE) {
+        targetTypographyProgress
+    } else {
+        animateFloatAsState(
+            targetValue = targetTypographyProgress,
+            animationSpec = tween(THEME_TRANSITION_MILLIS),
+            label = "typography-material-transition",
+        ).value
+    }
     val typography = animatedTypography(typographyProgress, selectedTheme)
     val materialTransition = rememberInfiniteTransition(label = "shared-material-breath")
     val materialPhase = materialTransition.animateFloat(
@@ -599,8 +629,12 @@ fun ProxyScrollTheme(
         animationSpec = tween(if (motionQuiet) 180 else 480, easing = FastOutSlowInEasing),
         label = "shared-material-motion-scale",
     )
-    val materialBreathReader = remember(materialPhase, materialMotionScale) {
-        { materialPhase.value * materialMotionScale.value }
+    val materialBreathReader = remember(selectedTheme, materialPhase, materialMotionScale) {
+        if (selectedTheme == AppTheme.LITE_LIFE) {
+            { 0f }
+        } else {
+            { materialPhase.value * materialMotionScale.value }
+        }
     }
     val effectiveInterfaceShape = remember(selectedTheme, interfaceShape) {
         interfaceShape.resolveFor(selectedTheme)
@@ -625,13 +659,17 @@ fun ProxyScrollTheme(
         LocalStainPaletteColors provides stainPalette,
         LocalMaterialMicrostructure provides materialMicrostructure,
         LocalMaterialBreath provides materialBreathReader,
-        LocalMaterialMotionProfile provides motionProfile,
+        LocalMaterialMotionProfile provides effectiveMotionProfile,
     ) {
         MaterialTheme(
             colorScheme = animatedScheme,
             typography = typography,
-            content = content,
-        )
+        ) {
+            CompositionLocalProvider(
+                LocalContentColor provides animatedScheme.onBackground,
+                content = content,
+            )
+        }
     }
 }
 
@@ -770,6 +808,10 @@ fun ProxyThemeBackground(
     selectedTheme: AppTheme,
     modifier: Modifier = Modifier,
 ) {
+    if (selectedTheme == AppTheme.LITE_LIFE) {
+        MaterialBackground(selectedTheme)
+        return
+    }
     Crossfade(
         targetState = selectedTheme,
         modifier = modifier,
@@ -1033,27 +1075,7 @@ private fun MaterialBackground(
                 )
             }
             AppTheme.LITE_LIFE -> {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF121318),
-                            Color(0xFF101115),
-                            Color(0xFF0D0E12),
-                        ),
-                    ),
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            palette.primary.copy(alpha = 0.045f * stain),
-                            Color.Transparent,
-                        ),
-                        center = Offset(size.width * 0.82f, size.height * 0.08f),
-                        radius = size.width * 0.72f,
-                    ),
-                    center = Offset(size.width * 0.82f, size.height * 0.08f),
-                    radius = size.width * 0.72f,
-                )
+                drawRect(color = Color(0xFF101115))
             }
         }
 
@@ -1142,6 +1164,28 @@ fun ProxySurface(
 ) {
     val style = LocalProxyVisualStyle.current
     val shapeSettings = LocalProxyShape.current
+    if (style.theme == AppTheme.LITE_LIFE) {
+        val fill = when {
+            strong -> Color(0xFF232831)
+            role == ProxySurfaceRole.INPUT -> Color(0xFF1D2026)
+            role == ProxySurfaceRole.OVERLAY -> Color(0xFF171A20)
+            else -> Color(0xFF1A1D23)
+        }
+        val outline = if (active) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+        } else {
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.34f)
+        }
+        Box(
+            modifier = modifier
+                .clip(RectangleShape)
+                .background(fill)
+                .border(1.dp, outline, RectangleShape),
+        ) {
+            content()
+        }
+        return
+    }
     val stainSettings = LocalStainSettings.current
     val palette = LocalStainPaletteColors.current
     val microstructure = LocalMaterialMicrostructure.current
@@ -1755,6 +1799,22 @@ fun ProxyInsetSurface(
 ) {
     val style = LocalProxyVisualStyle.current
     val shapeSettings = LocalProxyShape.current
+    if (style.theme == AppTheme.LITE_LIFE) {
+        val fill = if (selected) Color(0xFF252B34) else Color(0xFF1B1E24)
+        val outline = if (selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.78f)
+        } else {
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.32f)
+        }
+        Box(
+            modifier = modifier
+                .clip(RectangleShape)
+                .background(fill)
+                .border(1.dp, outline, RectangleShape),
+            content = content,
+        )
+        return
+    }
     val stainSettings = LocalStainSettings.current
     val palette = LocalStainPaletteColors.current
     val microstructure = LocalMaterialMicrostructure.current
@@ -1966,14 +2026,6 @@ fun ProxySettingsFog(
             }
             AppTheme.LITE_LIFE -> {
                 drawRect(color = Color(0xFF101115).copy(alpha = amount))
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF17191F).copy(alpha = 0.88f * amount),
-                            Color(0xFF101115).copy(alpha = 0.96f * amount),
-                        ),
-                    ),
-                )
             }
         }
     }
