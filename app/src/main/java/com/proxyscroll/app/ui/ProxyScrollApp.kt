@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.FormatClear
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PushPin
@@ -181,6 +182,7 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 private enum class ProxyDestination { NOTES, EDITOR, TRASH }
 
@@ -199,6 +201,7 @@ fun ProxyScrollApp(
     onActiveGroupFilterChanged: (String?) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val staticLiteLife = selectedTheme == AppTheme.LITE_LIFE
     val snackbarHostState = remember { SnackbarHostState() }
     val appScope = rememberCoroutineScope()
     var editorOpen by remember { mutableStateOf(false) }
@@ -212,17 +215,21 @@ fun ProxyScrollApp(
     }
     val settingsFogProgress by animateFloatAsState(
         targetValue = if (showSettings && !editorOpen && !showTrash) 1f else 0f,
-        animationSpec = tween(520, easing = FastOutSlowInEasing),
+        animationSpec = tween(if (staticLiteLife) 1 else 520, easing = FastOutSlowInEasing),
         label = "settings-fog-progress",
     )
     val settingsFogRadius by animateDpAsState(
-        targetValue = if (showSettings && !editorOpen && !showTrash) 4.dp else 0.dp,
-        animationSpec = tween(360, easing = FastOutSlowInEasing),
+        targetValue = if (
+            !staticLiteLife && showSettings && !editorOpen && !showTrash
+        ) 4.dp else 0.dp,
+        animationSpec = tween(if (staticLiteLife) 1 else 360, easing = FastOutSlowInEasing),
         label = "settings-fog-radius",
     )
     val settingsBackgroundScale by animateFloatAsState(
-        targetValue = if (showSettings && !editorOpen && !showTrash) 0.985f else 1f,
-        animationSpec = tween(520, easing = FastOutSlowInEasing),
+        targetValue = if (
+            !staticLiteLife && showSettings && !editorOpen && !showTrash
+        ) 0.985f else 1f,
+        animationSpec = tween(if (staticLiteLife) 1 else 520, easing = FastOutSlowInEasing),
         label = "settings-background-depth",
     )
 
@@ -254,7 +261,9 @@ fun ProxyScrollApp(
                         else -> ProxyDestination.NOTES
                     },
                     transitionSpec = {
-                        if (targetState == ProxyDestination.EDITOR) {
+                        if (staticLiteLife) {
+                            fadeIn(tween(1)) togetherWith fadeOut(tween(1))
+                        } else if (targetState == ProxyDestination.EDITOR) {
                             (fadeIn(tween(300)) +
                                 slideInHorizontally(tween(380)) { it / 8 } +
                                 scaleIn(tween(380), initialScale = 0.955f)) togetherWith
@@ -353,12 +362,18 @@ fun ProxyScrollApp(
                 modifier = Modifier
                     .fillMaxSize()
                     .zIndex(10f),
-                enter = fadeIn(tween(220)) +
-                    slideInVertically(tween(420)) { it / 8 } +
-                    scaleIn(tween(420), initialScale = 0.955f),
-                exit = fadeOut(tween(180)) +
-                    slideOutVertically(tween(300)) { it / 10 } +
-                    scaleOut(tween(260), targetScale = 0.98f),
+                enter = fadeIn(tween(if (staticLiteLife) 1 else 220)) +
+                    slideInVertically(tween(if (staticLiteLife) 1 else 420)) { it / 8 } +
+                    scaleIn(
+                        tween(if (staticLiteLife) 1 else 420),
+                        initialScale = if (staticLiteLife) 1f else 0.955f,
+                    ),
+                exit = fadeOut(tween(if (staticLiteLife) 1 else 180)) +
+                    slideOutVertically(tween(if (staticLiteLife) 1 else 300)) { it / 10 } +
+                    scaleOut(
+                        tween(if (staticLiteLife) 1 else 260),
+                        targetScale = if (staticLiteLife) 1f else 0.98f,
+                    ),
             ) {
                 Box(Modifier.fillMaxSize()) {
                     ProxySettingsFog(
@@ -433,6 +448,15 @@ private fun Modifier.animatedClick(
     enabled: Boolean = true,
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
+    if (liteLife) {
+        return this.clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            enabled = enabled,
+            onClick = onClick,
+        )
+    }
     val pressed by interactionSource.collectIsPressedAsState()
     val motionProfile = LocalMaterialMotionProfile.current
     val effectivePressedScale = 1f - (1f - pressedScale) * motionProfile.deformation
@@ -465,6 +489,16 @@ private fun Modifier.animatedCombinedClick(
     pressedScale: Float = 0.985f,
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
+    if (liteLife) {
+        return this.combinedClickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick,
+            onLongClickLabel = "Изменить группу",
+            onLongClick = onLongClick,
+        )
+    }
     val pressed by interactionSource.collectIsPressedAsState()
     val motionProfile = LocalMaterialMotionProfile.current
     val effectivePressedScale = 1f - (1f - pressedScale) * motionProfile.deformation
@@ -513,10 +547,15 @@ private fun NotesScreen(
     val searchInteractionSource = remember { MutableInteractionSource() }
     val searchFocused by searchInteractionSource.collectIsFocusedAsState()
     val listState = rememberLazyListState()
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
+    val themePrimaryColor = MaterialTheme.colorScheme.primary
+    var showGroupPicker by remember { mutableStateOf(false) }
     var showCreateGroup by remember { mutableStateOf(false) }
     var editingGroup by remember { mutableStateOf<NoteGroup?>(null) }
     var pendingDeleteGroup by remember { mutableStateOf<NoteGroup?>(null) }
     var tintOrigin by remember { mutableStateOf(Offset(160f, 220f)) }
+    var tintPulseColor by remember { mutableStateOf(Color.Transparent) }
+    var tintRevision by remember { mutableIntStateOf(0) }
     val selectedGroup = state.groups.firstOrNull { it.id == activeGroupFilter }
     val visibleNotes = remember(state.notes, activeGroupFilter) {
         activeGroupFilter?.let { id -> state.notes.filter { it.groupId == id } } ?: state.notes
@@ -530,13 +569,10 @@ private fun NotesScreen(
         label = "group-tint-color",
     )
     val tintWave = remember { Animatable(0f) }
-    LaunchedEffect(activeGroupFilter) {
-        if (activeGroupFilter == null) {
-            tintWave.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
-        } else {
-            tintWave.snapTo(0.08f)
-            tintWave.animateTo(1f, tween(720, easing = FastOutSlowInEasing))
-        }
+    LaunchedEffect(tintRevision) {
+        if (tintRevision == 0 || liteLife) return@LaunchedEffect
+        tintWave.snapTo(0f)
+        tintWave.animateTo(1f, tween(920, easing = FastOutSlowInEasing))
     }
     LaunchedEffect(state.groups.map { it.id }) {
         if (activeGroupFilter != null && state.groups.none { it.id == activeGroupFilter }) {
@@ -558,6 +594,7 @@ private fun NotesScreen(
         }
     }
     BackHandler(enabled = selectionMode) { selectedIds = emptyList() }
+    BackHandler(enabled = showGroupPicker && !selectionMode) { showGroupPicker = false }
     LaunchedEffect(visibleNotes.map { it.id }) {
         val activeIds = visibleNotes.mapTo(mutableSetOf()) { it.id }
         selectedIds = selectedIds.filter { it in activeIds }
@@ -582,14 +619,30 @@ private fun NotesScreen(
         modifier = Modifier
             .fillMaxSize()
             .drawBehind {
-                if (tintWave.value > 0.001f && tintColor.alpha > 0f) {
+                if (!liteLife && selectedGroup != null) {
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                tintColor.copy(alpha = 0.042f),
+                                tintColor.copy(alpha = 0.016f),
+                                Color.Transparent,
+                            ),
+                            center = tintOrigin,
+                            radius = maxOf(size.width, size.height) * 1.25f,
+                        ),
+                    )
+                }
+                if (!liteLife && tintWave.value in 0.001f..0.999f) {
+                    val progress = tintWave.value
+                    val pulse = sin(progress * Math.PI).toFloat().coerceAtLeast(0f)
                     val radius = maxOf(size.width, size.height) *
-                        (0.20f + tintWave.value * 1.18f)
+                        (0.06f + progress * 1.52f)
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                tintColor.copy(alpha = 0.18f),
-                                tintColor.copy(alpha = 0.075f),
+                                Color.White.copy(alpha = pulse * 0.11f),
+                                tintPulseColor.copy(alpha = pulse * 0.22f),
+                                tintPulseColor.copy(alpha = pulse * 0.07f),
                                 Color.Transparent,
                             ),
                             center = tintOrigin,
@@ -597,7 +650,14 @@ private fun NotesScreen(
                         ),
                         center = tintOrigin,
                         radius = radius,
-                        alpha = tintWave.value,
+                    )
+                    drawCircle(
+                        color = tintPulseColor.copy(alpha = pulse * 0.10f),
+                        center = tintOrigin,
+                        radius = radius * 0.72f,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = (3.5f * (1f - progress) + 0.6f).dp.toPx(),
+                        ),
                     )
                 }
             },
@@ -691,7 +751,13 @@ private fun NotesScreen(
                                             modifier = Modifier
                                                 .align(Alignment.TopEnd)
                                                 .size(16.dp)
-                                                .clip(CircleShape)
+                                                .clip(
+                                                    if (liteLife) {
+                                                        RoundedCornerShape(0.dp)
+                                                    } else {
+                                                        CircleShape
+                                                    },
+                                                )
                                                 .background(MaterialTheme.colorScheme.primary),
                                             contentAlignment = Alignment.Center,
                                         ) {
@@ -766,50 +832,96 @@ private fun NotesScreen(
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onBackground,
             )
-            AnimatedContent(
-                targetState = visibleNotes.size,
-                transitionSpec = {
-                    (fadeIn(tween(260)) + slideInVertically { it / 2 }) togetherWith
-                        (fadeOut(tween(180)) + slideOutVertically { -it / 2 })
-                },
-                label = "note-count",
-            ) { count ->
-                Text(
-                    text = if (selectedGroup != null) {
-                        "${notesCountLabel(count)} · ${selectedGroup.name}"
-                    } else {
-                        notesCountLabel(count)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AnimatedContent(
+                    targetState = visibleNotes.size,
+                    modifier = Modifier.weight(1f),
+                    transitionSpec = {
+                        val duration = if (liteLife) 1 else 240
+                        fadeIn(tween(duration)) togetherWith fadeOut(tween(duration))
                     },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            LiquidGroupRail(
-                groups = state.groups,
-                notes = state.notes,
-                selectedGroupId = activeGroupFilter,
-                assignmentMode = selectionMode,
-                onSelected = { group, origin ->
-                    tintOrigin = origin
-                    if (selectionMode) {
-                        onAssignGroup(selectedNotes, group?.id)
-                        selectedIds = emptyList()
-                        onActiveGroupFilterChanged(group?.id)
-                    } else {
-                        onActiveGroupFilterChanged(group?.id)
+                    label = "note-count",
+                ) { count ->
+                    Text(
+                        text = if (selectedGroup != null) {
+                            "${notesCountLabel(count)} · ${selectedGroup.name}"
+                        } else {
+                            notesCountLabel(count)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                ProxySurface(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .animatedClick(
+                            onClick = { showGroupPicker = !showGroupPicker },
+                            pressedScale = 0.92f,
+                        ),
+                    role = ProxySurfaceRole.BUTTON,
+                    strong = showGroupPicker || activeGroupFilter != null,
+                    active = showGroupPicker,
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.FilterAlt,
+                            contentDescription = if (showGroupPicker) {
+                                "Скрыть группы"
+                            } else {
+                                "Показать группы"
+                            },
+                            tint = selectedGroup?.let(::noteGroupColor)
+                                ?: MaterialTheme.colorScheme.onSurface,
+                        )
                     }
-                },
-                onCreate = { showCreateGroup = true },
-                onLongPress = { group ->
-                    if (!group.builtIn) editingGroup = group
-                },
-            )
+                }
+            }
+            AnimatedVisibility(
+                visible = showGroupPicker || selectionMode,
+                enter = fadeIn(tween(if (liteLife) 1 else 180)) +
+                    slideInVertically(tween(if (liteLife) 1 else 280)) { -it / 3 },
+                exit = fadeOut(tween(if (liteLife) 1 else 140)) +
+                    slideOutVertically(tween(if (liteLife) 1 else 220)) { -it / 3 },
+            ) {
+                Column {
+                    Spacer(Modifier.height(10.dp))
+                    LiquidGroupRail(
+                        groups = state.groups,
+                        notes = state.notes,
+                        selectedGroupId = activeGroupFilter,
+                        assignmentMode = selectionMode,
+                        onSelected = { group, origin ->
+                            tintOrigin = origin
+                            tintPulseColor = group?.let(::noteGroupColor) ?: themePrimaryColor
+                            tintRevision++
+                            if (selectionMode) {
+                                onAssignGroup(selectedNotes, group?.id)
+                                selectedIds = emptyList()
+                                onActiveGroupFilterChanged(group?.id)
+                            } else {
+                                onActiveGroupFilterChanged(group?.id)
+                                showGroupPicker = false
+                            }
+                        },
+                        onCreate = { showCreateGroup = true },
+                        onLongPress = { group ->
+                            if (!group.builtIn) editingGroup = group
+                        },
+                    )
+                }
+            }
             Spacer(Modifier.height(12.dp))
             ProxySurface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .animateContentSize(animationSpec = tween(320)),
+                    .then(
+                        if (liteLife) Modifier
+                        else Modifier.animateContentSize(animationSpec = tween(320)),
+                    ),
                 role = ProxySurfaceRole.INPUT,
                 active = searchFocused || state.query.isNotEmpty(),
             ) {
@@ -860,7 +972,7 @@ private fun NotesScreen(
                             NoteGroupHeader(
                                 group = group,
                                 singleGroup = noteGroups.size == 1,
-                                modifier = Modifier.animateItem(),
+                                modifier = if (liteLife) Modifier else Modifier.animateItem(),
                             )
                         }
                         itemsIndexed(
@@ -878,7 +990,7 @@ private fun NotesScreen(
                                 },
                                 onLongClick = { toggleSelection(note.id) },
                                 onTogglePinned = { onTogglePinned(note) },
-                                modifier = Modifier.animateItem(),
+                                modifier = if (liteLife) Modifier else Modifier.animateItem(),
                             )
                         }
                     }
@@ -943,6 +1055,7 @@ private fun TrashScreen(
     onDeleteForever: (Collection<Note>) -> Unit,
     onEmptyTrash: () -> Unit,
 ) {
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     var selectedIds by remember { mutableStateOf<List<String>>(emptyList()) }
     var pendingPermanentDelete by remember { mutableStateOf<List<Note>?>(null) }
     var confirmEmptyTrash by remember { mutableStateOf(false) }
@@ -1089,7 +1202,7 @@ private fun TrashScreen(
                             onLongClick = { toggleSelection(note.id) },
                             onRestore = { onRestore(listOf(note)) },
                             onDeleteForever = { pendingPermanentDelete = listOf(note) },
-                            modifier = Modifier.animateItem(),
+                            modifier = if (liteLife) Modifier else Modifier.animateItem(),
                         )
                     }
                     item { Spacer(Modifier.height(24.dp)) }
@@ -1161,6 +1274,7 @@ private fun TrashNoteCard(
     onDeleteForever: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     val dayMillis = TRASH_RETENTION_MILLIS / TRASH_RETENTION_DAYS
     val deletedAt = note.deletedAt ?: System.currentTimeMillis()
     val remainingMillis = (TRASH_RETENTION_MILLIS -
@@ -1181,7 +1295,7 @@ private fun TrashNoteCard(
                     Box(
                         modifier = Modifier
                             .size(28.dp)
-                            .clip(CircleShape)
+                            .clip(if (liteLife) RoundedCornerShape(0.dp) else CircleShape)
                             .background(MaterialTheme.colorScheme.primary),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -1252,11 +1366,14 @@ private fun LiquidGroupRail(
     onCreate: () -> Unit,
     onLongPress: (NoteGroup) -> Unit,
 ) {
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     Column {
         AnimatedVisibility(
             visible = assignmentMode,
-            enter = fadeIn(tween(180)) + slideInVertically(tween(240)) { it / 3 },
-            exit = fadeOut(tween(130)) + slideOutVertically(tween(180)) { it / 3 },
+            enter = fadeIn(tween(if (liteLife) 1 else 180)) +
+                slideInVertically(tween(if (liteLife) 1 else 240)) { it / 3 },
+            exit = fadeOut(tween(if (liteLife) 1 else 130)) +
+                slideOutVertically(tween(if (liteLife) 1 else 180)) { it / 3 },
         ) {
             Text(
                 text = "Коснитесь шара, чтобы назначить группу выбранным заметкам",
@@ -1332,10 +1449,27 @@ private fun LiquidGroupOrb(
     onLongClick: () -> Unit,
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
-    val orbSize by animateDpAsState(
-        targetValue = if (selected) 62.dp else 52.dp,
-        animationSpec = spring(dampingRatio = 0.58f, stiffness = 390f),
-        label = "group-orb-$label",
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val baseSize = if (liteLife) 52.dp else if (selected) 62.dp else 52.dp
+    val orbWidth by animateDpAsState(
+        targetValue = if (!liteLife && pressed) baseSize * 1.16f else baseSize,
+        animationSpec = if (liteLife) {
+            tween(1)
+        } else {
+            spring(dampingRatio = 0.48f, stiffness = 320f)
+        },
+        label = "group-orb-width-$label",
+    )
+    val orbHeight by animateDpAsState(
+        targetValue = if (!liteLife && pressed) baseSize * 0.86f else baseSize,
+        animationSpec = if (liteLife) {
+            tween(1)
+        } else {
+            spring(dampingRatio = 0.46f, stiffness = 300f)
+        },
+        label = "group-orb-height-$label",
     )
     Column(
         modifier = Modifier.width(76.dp),
@@ -1343,7 +1477,8 @@ private fun LiquidGroupOrb(
     ) {
         ProxySurface(
             modifier = Modifier
-                .size(orbSize)
+                .width(orbWidth)
+                .height(orbHeight)
                 .onGloballyPositioned { coordinates ->
                     val position = coordinates.positionInRoot()
                     origin = Offset(
@@ -1351,39 +1486,61 @@ private fun LiquidGroupOrb(
                         y = position.y + coordinates.size.height / 2f,
                     )
                 }
-                .animatedCombinedClick(
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = null,
                     onClick = { onClick(origin) },
+                    onLongClickLabel = "Настроить группу",
                     onLongClick = onLongClick,
-                    pressedScale = 0.90f,
                 ),
-            shape = CircleShape,
+            shape = if (liteLife) RoundedCornerShape(0.dp) else CircleShape,
             role = ProxySurfaceRole.BUTTON,
             strong = selected,
             active = selected,
             interactive = false,
         ) {
             Canvas(Modifier.fillMaxSize()) {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = if (selected) 0.48f else 0.30f),
-                            color.copy(alpha = if (selected) 0.76f else 0.54f),
-                            color.copy(alpha = 0.20f),
-                            Color.Transparent,
+                if (liteLife) {
+                    drawRect(color = color.copy(alpha = if (selected) 1f else 0.74f))
+                } else {
+                    drawOval(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = if (pressed) 0.66f else 0.46f),
+                                color.copy(alpha = if (selected) 0.82f else 0.64f),
+                                color.copy(alpha = 0.26f),
+                                Color.Transparent,
+                            ),
+                            center = Offset(
+                                size.width * if (pressed) 0.42f else 0.30f,
+                                size.height * 0.24f,
+                            ),
+                            radius = size.maxDimension * 0.78f,
                         ),
-                        center = Offset(size.width * 0.32f, size.height * 0.24f),
-                        radius = size.maxDimension * 0.72f,
-                    ),
-                )
-                drawArc(
-                    color = Color.White.copy(alpha = if (selected) 0.68f else 0.34f),
-                    startAngle = 205f,
-                    sweepAngle = 112f,
-                    useCenter = false,
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(
-                        width = if (selected) 1.6.dp.toPx() else 0.9.dp.toPx(),
-                    ),
-                )
+                    )
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = if (pressed) 0.28f else 0.18f),
+                                color.copy(alpha = 0.10f),
+                                Color.Transparent,
+                            ),
+                            center = Offset(size.width * 0.74f, size.height * 0.68f),
+                            radius = size.minDimension * 0.42f,
+                        ),
+                        center = Offset(size.width * 0.74f, size.height * 0.68f),
+                        radius = size.minDimension * 0.42f,
+                    )
+                    drawArc(
+                        color = Color.White.copy(alpha = if (selected) 0.72f else 0.40f),
+                        startAngle = 202f,
+                        sweepAngle = if (pressed) 132f else 108f,
+                        useCenter = false,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = if (selected) 1.7.dp.toPx() else 1.dp.toPx(),
+                        ),
+                    )
+                }
             }
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -1415,6 +1572,8 @@ private fun GroupStudioDialog(
     onSave: (String, Long) -> Unit,
     onDelete: (() -> Unit)? = null,
 ) {
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
+    val colorShape = if (liteLife) RoundedCornerShape(0.dp) else CircleShape
     val colors = remember(group?.colorArgb) {
         buildList {
             group?.colorArgb?.let { add(it) }
@@ -1469,7 +1628,7 @@ private fun GroupStudioDialog(
                         Box(
                             Modifier
                                 .size(34.dp)
-                                .clip(CircleShape)
+                                .clip(colorShape)
                                 .background(Color(selectedColor)),
                         )
                         Spacer(Modifier.width(12.dp))
@@ -1504,7 +1663,7 @@ private fun GroupStudioDialog(
                         Box(
                             modifier = Modifier
                                 .size(if (selected) 42.dp else 36.dp)
-                                .clip(CircleShape)
+                                .clip(colorShape)
                                 .background(Color(colorArgb))
                                 .border(
                                     width = if (selected) 3.dp else 1.dp,
@@ -1513,7 +1672,7 @@ private fun GroupStudioDialog(
                                     } else {
                                         Color.White.copy(alpha = 0.34f)
                                     },
-                                    shape = CircleShape,
+                                    shape = colorShape,
                                 )
                                 .animatedClick(
                                     onClick = { selectedColor = colorArgb },
@@ -1592,6 +1751,7 @@ private fun NoteGroupHeader(
     singleGroup: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1601,7 +1761,7 @@ private fun NoteGroupHeader(
         Box(
             modifier = Modifier
                 .size(if (group.group == null) 7.dp else 9.dp)
-                .clip(CircleShape)
+                .clip(if (liteLife) RoundedCornerShape(0.dp) else CircleShape)
                 .background(noteGroupColor(group.group)),
         )
         Spacer(Modifier.width(8.dp))
@@ -1673,6 +1833,7 @@ private fun NoteCard(
     onTogglePinned: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     val legacyAccent = if (note.colorFlag != NoteColorFlag.NONE) {
         noteFlagColor(note.colorFlag)
     } else {
@@ -1699,14 +1860,23 @@ private fun NoteCard(
                             .align(Alignment.CenterStart)
                             .width(4.dp)
                             .height(54.dp)
-                            .clip(RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        accentColor.copy(alpha = 0.95f),
-                                        accentColor.copy(alpha = 0.44f),
-                                    ),
-                                ),
+                            .clip(
+                                if (liteLife) RoundedCornerShape(0.dp)
+                                else RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp),
+                            )
+                            .then(
+                                if (liteLife) {
+                                    Modifier.background(accentColor)
+                                } else {
+                                    Modifier.background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                accentColor.copy(alpha = 0.95f),
+                                                accentColor.copy(alpha = 0.44f),
+                                            ),
+                                        ),
+                                    )
+                                },
                             ),
                     )
                 }
@@ -1717,14 +1887,19 @@ private fun NoteCard(
                     ) {
                         AnimatedContent(
                             targetState = selected,
-                            transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(110)) },
+                            transitionSpec = {
+                                val duration = if (liteLife) 1 else 140
+                                fadeIn(tween(duration)) togetherWith fadeOut(tween(duration))
+                            },
                             label = "note-selection-${note.id}",
                         ) { isSelected ->
                             if (isSelected) {
                                 Box(
                                     modifier = Modifier
                                         .size(28.dp)
-                                        .clip(CircleShape)
+                                        .clip(
+                                            if (liteLife) RoundedCornerShape(0.dp) else CircleShape,
+                                        )
                                         .background(MaterialTheme.colorScheme.primary),
                                     contentAlignment = Alignment.Center,
                                 ) {
@@ -1937,6 +2112,8 @@ private fun NoteGroupMenuButton(
     onSelected: (String?) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
+    val markerShape = if (liteLife) RoundedCornerShape(0.dp) else CircleShape
     val selectedGroup = groups.firstOrNull { it.id == selectedGroupId }
     Box {
         IconButton(onClick = { expanded = true }) {
@@ -1952,7 +2129,7 @@ private fun NoteGroupMenuButton(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .size(8.dp)
-                            .clip(CircleShape)
+                            .clip(markerShape)
                             .background(noteGroupColor(group)),
                     )
                 }
@@ -1968,7 +2145,7 @@ private fun NoteGroupMenuButton(
                     Box(
                         Modifier
                             .size(18.dp)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                            .border(1.dp, MaterialTheme.colorScheme.outline, markerShape),
                     )
                 },
                 trailingIcon = {
@@ -1994,7 +2171,7 @@ private fun NoteGroupMenuButton(
                         Box(
                             Modifier
                                 .size(18.dp)
-                                .clip(CircleShape)
+                                .clip(markerShape)
                                 .background(noteGroupColor(group)),
                         )
                     },
@@ -2698,10 +2875,11 @@ private fun SelectionLensButton(
     label: String,
     onClick: () -> Unit,
 ) {
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     Box(
         modifier = Modifier
             .height(30.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(if (liteLife) 0.dp else 14.dp))
             .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f))
             .animatedClick(onClick = onClick, pressedScale = 0.92f)
             .padding(horizontal = 10.dp),
@@ -2722,11 +2900,12 @@ private fun FormatButton(
     onClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     Box(
         modifier = Modifier
             .size(40.dp)
             .graphicsLayer { alpha = if (enabled) 1f else 0.34f }
-            .clip(CircleShape)
+            .clip(if (liteLife) RoundedCornerShape(0.dp) else CircleShape)
             .background(
                 if (selected) {
                     MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
@@ -2753,10 +2932,11 @@ private fun FontSizeControl(
     onCustomSize: (Int) -> Unit,
 ) {
     var showCustomDialog by remember { mutableStateOf(false) }
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     Row(
         modifier = Modifier
             .height(40.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(if (liteLife) 0.dp else 18.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -2863,7 +3043,7 @@ private fun SettingsSheet(
         AppTheme.LIQUID_GLASS -> "Мягкая геометрия стекла"
         AppTheme.ROYAL_GRAPHITE -> "Сдержанная геометрия графита"
         AppTheme.OLD_SCROLL -> "Твёрдый бумажный срез"
-        AppTheme.LITE_LIFE -> "Спокойная компактная геометрия"
+        AppTheme.LITE_LIFE -> "Прямоугольная статичная геометрия"
     }
     val dismissInteraction = remember { MutableInteractionSource() }
     BackHandler(onBack = onDismiss)
@@ -2912,15 +3092,21 @@ private fun SettingsSheet(
                     .padding(horizontal = 20.dp)
                     .padding(top = 14.dp, bottom = 24.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .width(42.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f)),
-                )
-                Spacer(Modifier.height(14.dp))
+                if (selectedTheme != AppTheme.LITE_LIFE) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .width(42.dp)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f),
+                            ),
+                    )
+                    Spacer(Modifier.height(14.dp))
+                } else {
+                    Spacer(Modifier.height(4.dp))
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3030,8 +3216,9 @@ private fun SettingsSheet(
                 } else {
                     LiteLifeBadge()
                 }
-                Spacer(Modifier.height(14.dp))
-                Row(Modifier.fillMaxWidth()) {
+                if (selectedTheme != AppTheme.LITE_LIFE) {
+                    Spacer(Modifier.height(14.dp))
+                    Row(Modifier.fillMaxWidth()) {
                     Text("Интенсивность", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.weight(1f))
                     Text(
@@ -3051,7 +3238,7 @@ private fun SettingsSheet(
                 Spacer(Modifier.height(8.dp))
                 Text("Глубина материала", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                Row(
+                    Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -3117,13 +3304,28 @@ private fun SettingsSheet(
                         )
                     }
                 }
+                } else {
+                    Spacer(Modifier.height(12.dp))
+                    ProxyInsetSurface(
+                        modifier = Modifier.fillMaxWidth(),
+                        role = ProxySurfaceRole.CARD,
+                        selected = true,
+                    ) {
+                        Text(
+                            text = "Оптика, свечение, деформация и дыхание отключены темой.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(14.dp),
+                        )
+                    }
+                }
                 Spacer(Modifier.height(18.dp))
                 Text("Форма интерфейса", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(6.dp))
                 ProxyInsetSurface(
                     modifier = Modifier.fillMaxWidth(),
                     role = ProxySurfaceRole.CARD,
-                    selected = interfaceShape.customEnabled,
+                    selected = interfaceShape.customEnabled && selectedTheme != AppTheme.LITE_LIFE,
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
@@ -3132,7 +3334,9 @@ private fun SettingsSheet(
                         Column(Modifier.weight(1f)) {
                             Text("Настраивать вручную", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = if (interfaceShape.customEnabled) {
+                                text = if (selectedTheme == AppTheme.LITE_LIFE) {
+                                    "LiteLife всегда использует углы 0 dp"
+                                } else if (interfaceShape.customEnabled) {
                                     "Shape Studio управляет всеми углами"
                                 } else {
                                     "$themeShapeLabel · тема управляет формой"
@@ -3142,7 +3346,9 @@ private fun SettingsSheet(
                             )
                         }
                         Switch(
-                            checked = interfaceShape.customEnabled,
+                            checked = interfaceShape.customEnabled &&
+                                selectedTheme != AppTheme.LITE_LIFE,
+                            enabled = selectedTheme != AppTheme.LITE_LIFE,
                             onCheckedChange = {
                                 onInterfaceShapeChanged(interfaceShape.copy(customEnabled = it))
                             },
@@ -3152,7 +3358,8 @@ private fun SettingsSheet(
                 Spacer(Modifier.height(12.dp))
                 ShapeLivePreview(resolvedShape)
                 AnimatedVisibility(
-                    visible = interfaceShape.customEnabled,
+                    visible = interfaceShape.customEnabled &&
+                        selectedTheme != AppTheme.LITE_LIFE,
                     enter = fadeIn(tween(220)) + slideInVertically(tween(300)) { -it / 5 },
                     exit = fadeOut(tween(160)) + slideOutVertically(tween(220)) { -it / 5 },
                 ) {
@@ -3513,7 +3720,7 @@ private fun LiteLifeBadge() {
             Column(Modifier.weight(1f)) {
                 Text("LiteLife", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "Чисто · быстро · без визуального шума",
+                    text = "Плоско · прямоугольно · полностью статично",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -3571,19 +3778,21 @@ private fun CompactThemeOption(
 
 @Composable
 private fun ShapeLivePreview(shapeSettings: InterfaceShape) {
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
+    val cornerDuration = if (liteLife) 1 else 220
     val cardCorner by animateDpAsState(
         targetValue = shapeSettings.resolvedCardCornerDp.dp,
-        animationSpec = tween(220),
+        animationSpec = tween(cornerDuration),
         label = "preview-card-corner",
     )
     val inputCorner by animateDpAsState(
         targetValue = shapeSettings.resolvedInputCornerDp.dp,
-        animationSpec = tween(220),
+        animationSpec = tween(cornerDuration),
         label = "preview-input-corner",
     )
     val buttonCorner by animateDpAsState(
         targetValue = shapeSettings.resolvedButtonCornerDp.dp,
-        animationSpec = tween(220),
+        animationSpec = tween(cornerDuration),
         label = "preview-button-corner",
     )
     ProxyInsetSurface(
@@ -3594,12 +3803,16 @@ private fun ShapeLivePreview(shapeSettings: InterfaceShape) {
     ) {
         Column(Modifier.padding(14.dp)) {
             Text(
-                text = "LIVE MATERIAL PREVIEW",
+                text = if (liteLife) "STATIC INTERFACE PREVIEW" else "LIVE MATERIAL PREVIEW",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "Нажмите и удерживайте: материал сожмётся и станет прозрачнее",
+                text = if (liteLife) {
+                    "Плоские поверхности без света, деформации и движения"
+                } else {
+                    "Нажмите и удерживайте: материал сожмётся и станет прозрачнее"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
                 maxLines = 1,
@@ -3650,7 +3863,11 @@ private fun ShapeLivePreview(shapeSettings: InterfaceShape) {
                         Text("Новая заметка", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(5.dp))
                         Text(
-                            text = "Форма и свет меняются мгновенно.",
+                            text = if (liteLife) {
+                                "Строгая форма 0 dp."
+                            } else {
+                                "Форма и свет меняются мгновенно."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -3856,7 +4073,7 @@ private fun ThemeSwatch(
 ) {
     val shape = when (theme) {
         AppTheme.OLD_SCROLL -> RoundedCornerShape(6.dp)
-        AppTheme.LITE_LIFE -> RoundedCornerShape(9.dp)
+        AppTheme.LITE_LIFE -> RoundedCornerShape(0.dp)
         else -> RoundedCornerShape(18.dp)
     }
     val stainSettings = LocalStainSettings.current
