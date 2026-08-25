@@ -78,13 +78,14 @@ private fun ProxyBrandMark(
     val oldScroll = style.theme == AppTheme.OLD_SCROLL
     val liteLife = style.theme == AppTheme.LITE_LIFE
     if (liteLife) {
+        val flatBrandColor = MaterialTheme.colorScheme.primary
         Canvas(modifier) {
             val scaleX = size.width / 512f
             val scaleY = size.height / 512f
             withTransform({ scale(scaleX, scaleY, pivot = Offset.Zero) }) {
                 drawPath(
                     path = ProxyBrandMarkPath,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = flatBrandColor,
                     style = Stroke(72f, cap = StrokeCap.Butt, join = StrokeJoin.Miter),
                 )
             }
