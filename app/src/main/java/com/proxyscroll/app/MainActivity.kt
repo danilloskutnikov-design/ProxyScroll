@@ -11,8 +11,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.proxyscroll.app.data.PreferencesNotesRepository
+import com.proxyscroll.app.data.PreferencesDocumentLibraryRepository
 import com.proxyscroll.app.data.ThemePreferences
 import com.proxyscroll.app.ui.NotesViewModel
+import com.proxyscroll.app.ui.LibraryViewModel
 import com.proxyscroll.app.ui.ProxyScrollApp
 import kotlinx.coroutines.delay
 
@@ -23,6 +25,9 @@ class MainActivity : ComponentActivity() {
 
         val preferences = getSharedPreferences("proxyscroll_notes", MODE_PRIVATE)
         val repository = PreferencesNotesRepository(preferences)
+        val libraryRepository = PreferencesDocumentLibraryRepository(
+            getSharedPreferences("proxyscroll_library", MODE_PRIVATE),
+        )
         val themePreferences = ThemePreferences(
             getSharedPreferences("proxyscroll_settings", MODE_PRIVATE),
         )
@@ -64,8 +69,12 @@ class MainActivity : ComponentActivity() {
             val notesViewModel: NotesViewModel = viewModel(
                 factory = NotesViewModel.Factory(repository),
             )
+            val libraryViewModel: LibraryViewModel = viewModel(
+                factory = LibraryViewModel.Factory(libraryRepository),
+            )
             ProxyScrollApp(
                 viewModel = notesViewModel,
+                libraryViewModel = libraryViewModel,
                 selectedTheme = selectedTheme,
                 onThemeSelected = { theme ->
                     selectedTheme = theme
