@@ -43,6 +43,9 @@ class MainActivity : ComponentActivity() {
             var labsSettings by remember {
                 mutableStateOf(themePreferences.getLabsSettings())
             }
+            var readingSettings by remember {
+                mutableStateOf(themePreferences.getReadingSettings())
+            }
             var activeGroupFilter by remember {
                 mutableStateOf(themePreferences.getActiveGroupFilter())
             }
@@ -53,6 +56,10 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(labsSettings) {
                 delay(220)
                 themePreferences.setLabsSettings(labsSettings)
+            }
+            LaunchedEffect(readingSettings) {
+                delay(220)
+                themePreferences.setReadingSettings(readingSettings)
             }
             val notesViewModel: NotesViewModel = viewModel(
                 factory = NotesViewModel.Factory(repository),
@@ -81,6 +88,10 @@ class MainActivity : ComponentActivity() {
                 labsSettings = labsSettings,
                 onLabsSettingsChanged = { settings ->
                     labsSettings = settings.normalized()
+                },
+                readingSettings = readingSettings,
+                onReadingSettingsChanged = { settings ->
+                    readingSettings = settings.normalized()
                 },
                 activeGroupFilter = activeGroupFilter,
                 onActiveGroupFilterChanged = { groupId ->
