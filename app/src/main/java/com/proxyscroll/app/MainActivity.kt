@@ -40,12 +40,19 @@ class MainActivity : ComponentActivity() {
             var stainSettings by remember {
                 mutableStateOf(themePreferences.getStainSettings())
             }
+            var labsSettings by remember {
+                mutableStateOf(themePreferences.getLabsSettings())
+            }
             var activeGroupFilter by remember {
                 mutableStateOf(themePreferences.getActiveGroupFilter())
             }
             LaunchedEffect(stainSettings) {
                 delay(320)
                 themePreferences.setStainSettings(stainSettings)
+            }
+            LaunchedEffect(labsSettings) {
+                delay(220)
+                themePreferences.setLabsSettings(labsSettings)
             }
             val notesViewModel: NotesViewModel = viewModel(
                 factory = NotesViewModel.Factory(repository),
@@ -70,6 +77,10 @@ class MainActivity : ComponentActivity() {
                 stainSettings = stainSettings,
                 onStainSettingsChanged = { settings ->
                     stainSettings = settings
+                },
+                labsSettings = labsSettings,
+                onLabsSettingsChanged = { settings ->
+                    labsSettings = settings.normalized()
                 },
                 activeGroupFilter = activeGroupFilter,
                 onActiveGroupFilterChanged = { groupId ->

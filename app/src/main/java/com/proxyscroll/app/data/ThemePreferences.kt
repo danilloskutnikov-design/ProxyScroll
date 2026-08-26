@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.InterfaceShape
+import com.proxyscroll.app.domain.LabsSettings
 import com.proxyscroll.app.domain.MaterialDepth
 import com.proxyscroll.app.domain.MaterialMotionQuality
 import com.proxyscroll.app.domain.StainMotion
@@ -80,6 +81,36 @@ class ThemePreferences(
             .apply()
     }
 
+    fun getLabsSettings(): LabsSettings {
+        val defaults = LabsSettings()
+        return LabsSettings(
+            microStabilizationEnabled = preferences.getBoolean(
+                KEY_LABS_MICRO_STABILIZATION,
+                defaults.microStabilizationEnabled,
+            ),
+            travelCuesEnabled = preferences.getBoolean(
+                KEY_LABS_TRAVEL_CUES,
+                defaults.travelCuesEnabled,
+            ),
+            motionStrength = preferences.getFloat(
+                KEY_LABS_MOTION_STRENGTH,
+                defaults.motionStrength,
+            ),
+        ).normalized()
+    }
+
+    fun setLabsSettings(settings: LabsSettings) {
+        val normalized = settings.normalized()
+        preferences.edit()
+            .putBoolean(
+                KEY_LABS_MICRO_STABILIZATION,
+                normalized.microStabilizationEnabled,
+            )
+            .putBoolean(KEY_LABS_TRAVEL_CUES, normalized.travelCuesEnabled)
+            .putFloat(KEY_LABS_MOTION_STRENGTH, normalized.motionStrength)
+            .apply()
+    }
+
     fun getActiveGroupFilter(): String? {
         return preferences.getString(KEY_ACTIVE_GROUP_FILTER, null)
     }
@@ -107,6 +138,9 @@ class ThemePreferences(
         const val KEY_MATERIAL_DEPTH = "material_depth"
         const val KEY_STAIN_MOTION = "stain_motion"
         const val KEY_MATERIAL_MOTION_QUALITY = "material_motion_quality"
+        const val KEY_LABS_MICRO_STABILIZATION = "labs_micro_stabilization"
+        const val KEY_LABS_TRAVEL_CUES = "labs_travel_cues"
+        const val KEY_LABS_MOTION_STRENGTH = "labs_motion_strength"
         const val KEY_ACTIVE_GROUP_FILTER = "active_group_filter"
     }
 }
