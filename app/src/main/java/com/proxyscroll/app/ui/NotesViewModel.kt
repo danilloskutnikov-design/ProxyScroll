@@ -6,6 +6,7 @@ import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteColorFlag
 import com.proxyscroll.app.domain.NoteGroup
 import com.proxyscroll.app.domain.NoteSpan
+import com.proxyscroll.app.domain.NoteTextAlignment
 import com.proxyscroll.app.domain.NotesRepository
 import com.proxyscroll.app.domain.TRASH_RETENTION_MILLIS
 import com.proxyscroll.app.domain.defaultGroupId
@@ -37,6 +38,7 @@ class NotesViewModel(
         title: String,
         body: String,
         spans: List<NoteSpan>,
+        textAlignment: NoteTextAlignment,
         groupId: String?,
     ): Note? {
         if (existing == null && title.isBlank() && body.isBlank()) return null
@@ -50,6 +52,7 @@ class NotesViewModel(
             title = resolvedTitle,
             body = body,
             spans = spans,
+            textAlignment = textAlignment,
             isPinned = existing?.isPinned ?: false,
             colorFlag = legacyFlagForGroup(resolvedGroupId),
             groupId = resolvedGroupId,
