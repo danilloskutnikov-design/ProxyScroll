@@ -224,6 +224,13 @@ class RichTextState(
         )
     }
 
+    fun moveCursorTo(position: Int) {
+        val cursor = position.coerceIn(0, value.text.length)
+        setSelection(cursor, cursor)
+        typingStyle = styleAtCursor(cursor)
+        resetTextHistoryGroup()
+    }
+
     fun selectWord() {
         val text = value.text
         if (text.isEmpty()) return
@@ -412,6 +419,23 @@ fun annotatedText(
         run.copy(
             style = run.style.copy(
                 fontSizeSp = run.style.fontSizeSp.coerceIn(13, 22),
+            ),
+        )
+    },
+)
+
+fun readingAnnotatedText(
+    text: String,
+    spans: List<NoteSpan>,
+    fontScale: Float,
+): AnnotatedString = styledText(
+    text,
+    runsFromSpans(text, spans).map { run ->
+        run.copy(
+            style = run.style.copy(
+                fontSizeSp = (run.style.fontSizeSp * fontScale)
+                    .toInt()
+                    .coerceIn(11, 58),
             ),
         )
     },
