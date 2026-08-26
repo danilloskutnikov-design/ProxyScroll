@@ -216,6 +216,17 @@ class RichTextState(
         )
     }
 
+    fun applyTextPreset(fontSizeSp: Int, bold: Boolean) {
+        val safeSize = fontSizeSp.coerceIn(MIN_NOTE_FONT_SIZE_SP, MAX_NOTE_FONT_SIZE_SP)
+        transformSelection(
+            forceEnabled = true,
+            isActive = { false },
+            transform = { style, _ ->
+                style.copy(fontSizeSp = safeSize, bold = bold)
+            },
+        )
+    }
+
     fun clearFormatting() {
         transformSelection(
             forceEnabled = true,
