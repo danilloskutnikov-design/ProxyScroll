@@ -7,6 +7,7 @@ import com.proxyscroll.app.domain.InterfaceShape
 import com.proxyscroll.app.domain.LabsSettings
 import com.proxyscroll.app.domain.MaterialDepth
 import com.proxyscroll.app.domain.MaterialMotionQuality
+import com.proxyscroll.app.domain.ReadingSettings
 import com.proxyscroll.app.domain.StainMotion
 import com.proxyscroll.app.domain.StainPalette
 import com.proxyscroll.app.domain.StainSettings
@@ -111,6 +112,24 @@ class ThemePreferences(
             .apply()
     }
 
+    fun getReadingSettings(): ReadingSettings {
+        val defaults = ReadingSettings()
+        return ReadingSettings(
+            fontScale = preferences.getFloat(KEY_READING_FONT_SCALE, defaults.fontScale),
+            lineHeight = preferences.getFloat(KEY_READING_LINE_HEIGHT, defaults.lineHeight),
+            pageMarginDp = preferences.getInt(KEY_READING_PAGE_MARGIN, defaults.pageMarginDp),
+        ).normalized()
+    }
+
+    fun setReadingSettings(settings: ReadingSettings) {
+        val normalized = settings.normalized()
+        preferences.edit()
+            .putFloat(KEY_READING_FONT_SCALE, normalized.fontScale)
+            .putFloat(KEY_READING_LINE_HEIGHT, normalized.lineHeight)
+            .putInt(KEY_READING_PAGE_MARGIN, normalized.pageMarginDp)
+            .apply()
+    }
+
     fun getActiveGroupFilter(): String? {
         return preferences.getString(KEY_ACTIVE_GROUP_FILTER, null)
     }
@@ -141,6 +160,9 @@ class ThemePreferences(
         const val KEY_LABS_MICRO_STABILIZATION = "labs_micro_stabilization"
         const val KEY_LABS_TRAVEL_CUES = "labs_travel_cues"
         const val KEY_LABS_MOTION_STRENGTH = "labs_motion_strength"
+        const val KEY_READING_FONT_SCALE = "reading_font_scale"
+        const val KEY_READING_LINE_HEIGHT = "reading_line_height"
+        const val KEY_READING_PAGE_MARGIN = "reading_page_margin_dp"
         const val KEY_ACTIVE_GROUP_FILTER = "active_group_filter"
     }
 }
