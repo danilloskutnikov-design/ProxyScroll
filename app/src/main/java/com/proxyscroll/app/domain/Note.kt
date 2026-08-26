@@ -5,6 +5,7 @@ data class Note(
     val title: String,
     val body: String,
     val spans: List<NoteSpan> = emptyList(),
+    val textAlignment: NoteTextAlignment = NoteTextAlignment.START,
     val isPinned: Boolean,
     val colorFlag: NoteColorFlag = NoteColorFlag.NONE,
     /** Persistent colour group. Built-ins mirror legacy flags; custom IDs are user-created. */
@@ -16,6 +17,23 @@ data class Note(
     /** Null for active notes; epoch millis after moving the note to Trash. */
     val deletedAt: Long? = null,
 )
+
+enum class NoteTextAlignment(
+    val storageKey: String,
+    val displayName: String,
+) {
+    START("start", "По левому краю"),
+    CENTER("center", "По центру"),
+    END("end", "По правому краю"),
+    JUSTIFY("justify", "По ширине"),
+    ;
+
+    companion object {
+        fun fromStorage(value: String?): NoteTextAlignment {
+            return entries.firstOrNull { it.storageKey == value } ?: START
+        }
+    }
+}
 
 enum class NoteColorFlag(
     val storageKey: String,
