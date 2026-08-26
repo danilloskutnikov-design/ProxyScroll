@@ -28,6 +28,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -42,6 +45,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -63,6 +67,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatClear
 import androidx.compose.material.icons.filled.FormatSize
@@ -129,6 +134,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
@@ -136,6 +143,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -148,8 +156,12 @@ import com.proxyscroll.app.domain.LabsSettings
 import com.proxyscroll.app.domain.MaterialDepth
 import com.proxyscroll.app.domain.MaterialMotionQuality
 import com.proxyscroll.app.domain.MAX_LABS_MOTION_STRENGTH
+import com.proxyscroll.app.domain.MAX_READING_FONT_SCALE
+import com.proxyscroll.app.domain.MAX_READING_LINE_HEIGHT
 import com.proxyscroll.app.domain.MAX_STAIN_INTENSITY
 import com.proxyscroll.app.domain.MIN_LABS_MOTION_STRENGTH
+import com.proxyscroll.app.domain.MIN_READING_FONT_SCALE
+import com.proxyscroll.app.domain.MIN_READING_LINE_HEIGHT
 import com.proxyscroll.app.domain.MIN_STAIN_INTENSITY
 import com.proxyscroll.app.domain.MAX_INTERFACE_CORNER_DP
 import com.proxyscroll.app.domain.MIN_INTERFACE_CORNER_DP
@@ -157,6 +169,7 @@ import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteColorFlag
 import com.proxyscroll.app.domain.NoteGroup
 import com.proxyscroll.app.domain.NoteSpan
+import com.proxyscroll.app.domain.ReadingSettings
 import com.proxyscroll.app.domain.resolveFor
 import com.proxyscroll.app.domain.StainMotion
 import com.proxyscroll.app.domain.StainPalette
@@ -167,6 +180,7 @@ import com.proxyscroll.app.ui.editor.MAX_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.MIN_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.RichTextState
 import com.proxyscroll.app.ui.editor.annotatedText
+import com.proxyscroll.app.ui.editor.readingAnnotatedText
 import com.proxyscroll.app.ui.labs.MotionCompensationFrame
 import com.proxyscroll.app.ui.labs.MotionSensorAvailability
 import com.proxyscroll.app.ui.labs.TravelMotionCues
@@ -191,7 +205,7 @@ import java.util.Date
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private enum class ProxyDestination { NOTES, EDITOR, TRASH }
+private enum class ProxyDestination { NOTES, READER, EDITOR, TRASH }
 private enum class SettingsTab { APPEARANCE, LABS }
 
 @Composable
@@ -207,6 +221,8 @@ fun ProxyScrollApp(
     onStainSettingsChanged: (StainSettings) -> Unit,
     labsSettings: LabsSettings,
     onLabsSettingsChanged: (LabsSettings) -> Unit,
+    readingSettings: ReadingSettings,
+    onReadingSettingsChanged: (ReadingSettings) -> Unit,
     activeGroupFilter: String?,
     onActiveGroupFilterChanged: (String?) -> Unit,
 ) {
@@ -215,7 +231,9 @@ fun ProxyScrollApp(
     val snackbarHostState = remember { SnackbarHostState() }
     val appScope = rememberCoroutineScope()
     var editorOpen by remember { mutableStateOf(false) }
+    var readerOpen by remember { mutableStateOf(false) }
     var editorNote by remember { mutableStateOf<Note?>(null) }
+    var editorInitialCursor by remember { mutableStateOf<Int?>(null) }
     var showTrash by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var typingQuiet by remember { mutableStateOf(false) }
@@ -282,6 +300,7 @@ fun ProxyScrollApp(
                         },
                     targetState = when {
                         editorOpen -> ProxyDestination.EDITOR
+                        readerOpen -> ProxyDestination.READER
                         showTrash -> ProxyDestination.TRASH
                         else -> ProxyDestination.NOTES
                     },
@@ -309,12 +328,15 @@ fun ProxyScrollApp(
                     if (destination == ProxyDestination.EDITOR) {
                         NoteEditorScreen(
                             note = editorNote,
+                            initialBodyCursor = editorInitialCursor,
                             groups = state.groups,
                             inputMotion = inputMotion,
                             onSave = viewModel::save,
                             onDelete = { deletedNote ->
                                 viewModel.moveToTrash(deletedNote)
                                 editorOpen = false
+                                readerOpen = false
+                                editorNote = null
                                 appScope.launch {
                                     val result = snackbarHostState.showSnackbar(
                                         message = "Заметка перемещена в корзину",
@@ -326,9 +348,33 @@ fun ProxyScrollApp(
                                     }
                                 }
                             },
-                            onClose = { editorOpen = false },
+                            onClose = { savedNote ->
+                                editorOpen = false
+                                editorInitialCursor = null
+                                editorNote = savedNote
+                                readerOpen = savedNote != null
+                            },
                             onTypingQuietChanged = { typingQuiet = it },
                         )
+                    } else if (destination == ProxyDestination.READER) {
+                        editorNote?.let { note ->
+                            NoteReaderScreen(
+                                note = note,
+                                group = state.groups.firstOrNull { it.id == note.groupId },
+                                settings = readingSettings,
+                                onSettingsChanged = onReadingSettingsChanged,
+                                onScrollQuietChanged = { scrollingQuiet = it },
+                                onBack = {
+                                    readerOpen = false
+                                    editorNote = null
+                                },
+                                onEdit = { cursor ->
+                                    editorInitialCursor = cursor
+                                    readerOpen = false
+                                    editorOpen = true
+                                },
+                            )
+                        }
                     } else if (destination == ProxyDestination.TRASH) {
                         TrashScreen(
                             notes = state.trash,
@@ -343,11 +389,14 @@ fun ProxyScrollApp(
                             onQueryChange = viewModel::setQuery,
                             onCreate = {
                                 editorNote = null
+                                editorInitialCursor = null
+                                readerOpen = false
                                 editorOpen = true
                             },
                             onEdit = {
                                 editorNote = it
-                                editorOpen = true
+                                editorInitialCursor = null
+                                readerOpen = true
                             },
                             onTogglePinned = viewModel::togglePinned,
                             onBulkPinned = viewModel::setPinned,
@@ -2285,17 +2334,315 @@ private fun NoteFlagSwatch(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NoteReaderScreen(
+    note: Note,
+    group: NoteGroup?,
+    settings: ReadingSettings,
+    onSettingsChanged: (ReadingSettings) -> Unit,
+    onScrollQuietChanged: (Boolean) -> Unit,
+    onBack: () -> Unit,
+    onEdit: (Int) -> Unit,
+) {
+    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
+    val scrollState = rememberScrollState()
+    var showReadingControls by remember(note.id) { mutableStateOf(false) }
+    var textLayout by remember(note.id, settings.fontScale) {
+        mutableStateOf<TextLayoutResult?>(null)
+    }
+    val accentColor = group?.let(::noteGroupColor)
+    val transformState = rememberTransformableState { zoomChange, _, _ ->
+        if (zoomChange.isFinite() && kotlin.math.abs(zoomChange - 1f) > 0.002f) {
+            onSettingsChanged(
+                settings.copy(fontScale = settings.fontScale * zoomChange).normalized(),
+            )
+        }
+    }
+    val currentScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collectLatest { scrolling ->
+                currentScrollQuietChanged(scrolling)
+                if (scrolling) {
+                    delay(140)
+                }
+            }
+    }
+    DisposableEffect(Unit) {
+        onDispose { currentScrollQuietChanged(false) }
+    }
+    BackHandler(onBack = onBack)
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Чтение", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = "#${note.index.toString().padStart(3, '0')}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "К списку заметок")
+                    }
+                },
+                actions = {
+                    ProxySurface(
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .size(44.dp)
+                            .animatedClick(
+                                onClick = { onEdit(note.body.length) },
+                                pressedScale = 0.96f,
+                            ),
+                        role = ProxySurfaceRole.BUTTON,
+                        strong = true,
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Edit, contentDescription = "Редактировать")
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
+            )
+        },
+    ) { contentPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = settings.pageMarginDp.dp)
+                    .padding(top = 14.dp, bottom = 116.dp),
+            ) {
+                Text(
+                    text = note.title.ifBlank { "Без названия" },
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        fontSize = (32f * settings.fontScale.coerceIn(0.86f, 1.28f)).sp,
+                        lineHeight = (38f * settings.fontScale.coerceIn(0.86f, 1.28f)).sp,
+                    ),
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = DateFormat.getDateTimeInstance(
+                            DateFormat.MEDIUM,
+                            DateFormat.SHORT,
+                        ).format(Date(note.updatedAt)),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    group?.let {
+                        Text(
+                            text = it.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = accentColor ?: MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                HorizontalDivider(
+                    color = (accentColor ?: MaterialTheme.colorScheme.outline)
+                        .copy(alpha = if (accentColor == null) 0.18f else 0.38f),
+                )
+                Spacer(Modifier.height(22.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 340.dp)
+                        .transformable(transformState)
+                        .pointerInput(note.id, textLayout, settings.fontScale) {
+                            detectTapGestures(
+                                onTap = { position ->
+                                    val cursor = textLayout
+                                        ?.getOffsetForPosition(position)
+                                        ?: note.body.length
+                                    onEdit(cursor)
+                                },
+                            )
+                        },
+                ) {
+                    if (note.body.isBlank()) {
+                        Text(
+                            text = "Пустая заметка\nКоснитесь, чтобы начать писать",
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                lineHeight = 26.sp,
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text = readingAnnotatedText(
+                                text = note.body,
+                                spans = note.spans,
+                                fontScale = settings.fontScale,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                color = MaterialTheme.colorScheme.onBackground,
+                                lineHeight = (
+                                    28f * settings.fontScale * settings.lineHeight
+                                ).sp,
+                            ),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            onTextLayout = { textLayout = it },
+                        )
+                    }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = showReadingControls,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 14.dp, bottom = 76.dp)
+                    .zIndex(2f),
+                enter = fadeIn(tween(if (liteLife) 1 else 180)) +
+                    slideInVertically(tween(if (liteLife) 1 else 260)) { it / 4 } +
+                    scaleIn(tween(if (liteLife) 1 else 260), initialScale = 0.94f),
+                exit = fadeOut(tween(if (liteLife) 1 else 140)) +
+                    slideOutVertically(tween(if (liteLife) 1 else 200)) { it / 4 } +
+                    scaleOut(tween(if (liteLife) 1 else 180), targetScale = 0.96f),
+            ) {
+                ReadingControls(
+                    settings = settings,
+                    onSettingsChanged = onSettingsChanged,
+                    modifier = Modifier.fillMaxWidth(0.88f),
+                )
+            }
+
+            ProxySurface(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 14.dp, bottom = 12.dp)
+                    .size(52.dp)
+                    .animatedClick(
+                        onClick = { showReadingControls = !showReadingControls },
+                        pressedScale = if (liteLife) 1f else 0.92f,
+                    ),
+                role = ProxySurfaceRole.BUTTON,
+                strong = showReadingControls,
+                active = showReadingControls,
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.FormatSize,
+                        contentDescription = "Настроить чтение",
+                        tint = if (showReadingControls) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadingControls(
+    settings: ReadingSettings,
+    onSettingsChanged: (ReadingSettings) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ProxySurface(
+        modifier = modifier,
+        role = ProxySurfaceRole.OVERLAY,
+        strong = true,
+        interactive = false,
+        deformContent = false,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Текст", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "${(settings.fontScale * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Slider(
+                value = settings.fontScale,
+                onValueChange = {
+                    onSettingsChanged(settings.copy(fontScale = it).normalized())
+                },
+                valueRange = MIN_READING_FONT_SCALE..MAX_READING_FONT_SCALE,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Воздух между строками", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "${(settings.lineHeight * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Slider(
+                value = settings.lineHeight,
+                onValueChange = {
+                    onSettingsChanged(settings.copy(lineHeight = it).normalized())
+                },
+                valueRange = MIN_READING_LINE_HEIGHT..MAX_READING_LINE_HEIGHT,
+            )
+            Text("Ширина страницы", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf("Шире" to 12, "Баланс" to 20, "Уже" to 32).forEach { (label, margin) ->
+                    MotionOption(
+                        label = label,
+                        selected = settings.pageMarginDp == margin,
+                        onClick = {
+                            onSettingsChanged(settings.copy(pageMarginDp = margin))
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
 private enum class EditorSaveState { CLEAN, EDITING, SAVED }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NoteEditorScreen(
     note: Note?,
+    initialBodyCursor: Int?,
     groups: List<NoteGroup>,
     inputMotion: InputMotion,
     onSave: (Note?, String, String, List<NoteSpan>, String?) -> Note?,
     onDelete: (Note) -> Unit,
-    onClose: () -> Unit,
+    onClose: (Note?) -> Unit,
     onTypingQuietChanged: (Boolean) -> Unit,
 ) {
     var savedNote by remember(note?.id) { mutableStateOf(note) }
@@ -2305,8 +2652,10 @@ private fun NoteEditorScreen(
     }
     val selectedGroup = groups.firstOrNull { it.id == selectedGroupId }
     val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
-    val richText = remember(note?.id) {
-        RichTextState(note?.body.orEmpty(), note?.spans.orEmpty())
+    val richText = remember(note?.id, initialBodyCursor) {
+        RichTextState(note?.body.orEmpty(), note?.spans.orEmpty()).also { state ->
+            initialBodyCursor?.let(state::moveCursorTo)
+        }
     }
     var hasChanges by remember(note?.id) { mutableStateOf(false) }
     var saveState by remember(note?.id) { mutableStateOf(EditorSaveState.CLEAN) }
@@ -2342,6 +2691,16 @@ private fun NoteEditorScreen(
         animationSpec = tween(240, easing = FastOutSlowInEasing),
         label = "editor-title-space",
     )
+    val editorPagePadding by animateDpAsState(
+        targetValue = if (bodyFocused) 8.dp else 16.dp,
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
+        label = "editor-page-width",
+    )
+    val editorTextPadding by animateDpAsState(
+        targetValue = if (bodyFocused) 12.dp else 18.dp,
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
+        label = "editor-text-padding",
+    )
     val automaticTitle = remember(richText.value.text) {
         richText.value.text
             .trim()
@@ -2351,8 +2710,8 @@ private fun NoteEditorScreen(
             .joinToString(" ")
     }
 
-    fun saveNow() {
-        if (!hasChanges) return
+    fun saveNow(): Note? {
+        if (!hasChanges) return savedNote
         val result = onSave(
             savedNote,
             title,
@@ -2363,11 +2722,11 @@ private fun NoteEditorScreen(
         if (result != null) savedNote = result
         hasChanges = false
         saveState = if (result == null) EditorSaveState.CLEAN else EditorSaveState.SAVED
+        return savedNote
     }
 
     fun finishEditing() {
-        saveNow()
-        onClose()
+        onClose(saveNow())
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -2384,7 +2743,15 @@ private fun NoteEditorScreen(
         }
     }
 
-    BackHandler(onBack = ::finishEditing)
+    val focusManager = LocalFocusManager.current
+    BackHandler {
+        if (bodyFocused) {
+            focusManager.clearFocus()
+            onTypingQuietChanged(false)
+        } else {
+            finishEditing()
+        }
+    }
 
     LaunchedEffect(groups.map { it.id }) {
         if (selectedGroupId != null && groups.none { it.id == selectedGroupId }) {
@@ -2394,7 +2761,7 @@ private fun NoteEditorScreen(
         }
     }
 
-    LaunchedEffect(note?.id) {
+    LaunchedEffect(note?.id, initialBodyCursor) {
         delay(260)
         bodyFocusRequester.requestFocus()
     }
@@ -2536,7 +2903,7 @@ private fun NoteEditorScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(contentPadding)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = editorPagePadding),
         ) {
             BasicTextField(
                 value = title,
@@ -2665,7 +3032,7 @@ private fun NoteEditorScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .focusRequester(bodyFocusRequester)
-                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                        .padding(horizontal = editorTextPadding, vertical = 14.dp),
                     interactionSource = bodyInteractionSource,
                     onTextLayout = { bodyTextLayout = it },
                     visualTransformation = richText.visualTransformation,
@@ -2710,7 +3077,7 @@ private fun NoteEditorScreen(
                     onClick = {
                         savedNote?.let(onDelete)
                         showDeleteConfirmation = false
-                        onClose()
+                        onClose(null)
                     },
                 ) {
                     Text("Удалить", color = MaterialTheme.colorScheme.error)
