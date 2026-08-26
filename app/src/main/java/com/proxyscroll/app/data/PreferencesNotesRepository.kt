@@ -5,6 +5,7 @@ import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteColorFlag
 import com.proxyscroll.app.domain.NoteGroup
 import com.proxyscroll.app.domain.NoteSpan
+import com.proxyscroll.app.domain.NoteTextAlignment
 import com.proxyscroll.app.domain.NotesRepository
 import com.proxyscroll.app.domain.DEFAULT_NOTE_GROUPS
 import com.proxyscroll.app.domain.defaultGroupId
@@ -171,6 +172,7 @@ class PreferencesNotesRepository(
                 })
             }
         })
+        put("textAlignment", textAlignment.storageKey)
         put("isPinned", isPinned)
         put("colorFlag", colorFlag.storageKey)
         put("groupId", groupId ?: JSONObject.NULL)
@@ -213,6 +215,7 @@ class PreferencesNotesRepository(
             title = optString("title"),
             body = body,
             spans = spans,
+            textAlignment = NoteTextAlignment.fromStorage(optString("textAlignment", null)),
             isPinned = optBoolean("isPinned"),
             colorFlag = colorFlag,
             groupId = groupId,
