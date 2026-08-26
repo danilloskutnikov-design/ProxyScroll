@@ -1,6 +1,13 @@
 package com.proxyscroll.app.ui
 
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -24,19 +31,22 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -67,7 +77,12 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FormatAlignCenter
+import androidx.compose.material.icons.filled.FormatAlignJustify
+import androidx.compose.material.icons.filled.FormatAlignLeft
+import androidx.compose.material.icons.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatClear
 import androidx.compose.material.icons.filled.FormatSize
@@ -75,6 +90,8 @@ import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NavigateBefore
+import androidx.compose.material.icons.filled.NavigateNext
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
@@ -87,6 +104,7 @@ import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -113,6 +131,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -131,17 +150,21 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -153,6 +176,7 @@ import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.InterfaceShape
 import com.proxyscroll.app.domain.LabsSettings
+import com.proxyscroll.app.domain.LibraryDocument
 import com.proxyscroll.app.domain.MaterialDepth
 import com.proxyscroll.app.domain.MaterialMotionQuality
 import com.proxyscroll.app.domain.MAX_LABS_MOTION_STRENGTH
@@ -169,6 +193,7 @@ import com.proxyscroll.app.domain.Note
 import com.proxyscroll.app.domain.NoteColorFlag
 import com.proxyscroll.app.domain.NoteGroup
 import com.proxyscroll.app.domain.NoteSpan
+import com.proxyscroll.app.domain.NoteTextAlignment
 import com.proxyscroll.app.domain.ReadingSettings
 import com.proxyscroll.app.domain.resolveFor
 import com.proxyscroll.app.domain.StainMotion
@@ -197,20 +222,23 @@ import com.proxyscroll.app.ui.theme.ProxySurface
 import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import com.proxyscroll.app.ui.theme.ProxyThemeBackground
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private enum class ProxyDestination { NOTES, READER, EDITOR, TRASH }
+private enum class ProxyDestination { NOTES, LIBRARY, PDF_READER, READER, EDITOR, TRASH }
 private enum class SettingsTab { APPEARANCE, LABS }
 
 @Composable
 fun ProxyScrollApp(
     viewModel: NotesViewModel,
+    libraryViewModel: LibraryViewModel,
     selectedTheme: AppTheme,
     onThemeSelected: (AppTheme) -> Unit,
     inputMotion: InputMotion,
@@ -227,6 +255,7 @@ fun ProxyScrollApp(
     onActiveGroupFilterChanged: (String?) -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val libraryState by libraryViewModel.uiState.collectAsStateWithLifecycle()
     val staticLiteLife = selectedTheme == AppTheme.LITE_LIFE
     val snackbarHostState = remember { SnackbarHostState() }
     val appScope = rememberCoroutineScope()
@@ -234,6 +263,9 @@ fun ProxyScrollApp(
     var readerOpen by remember { mutableStateOf(false) }
     var editorNote by remember { mutableStateOf<Note?>(null) }
     var editorInitialCursor by remember { mutableStateOf<Int?>(null) }
+    var showLibrary by remember { mutableStateOf(false) }
+    var pdfReaderOpen by remember { mutableStateOf(false) }
+    var openPdfDocument by remember { mutableStateOf<LibraryDocument?>(null) }
     var showTrash by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var typingQuiet by remember { mutableStateOf(false) }
@@ -301,7 +333,9 @@ fun ProxyScrollApp(
                     targetState = when {
                         editorOpen -> ProxyDestination.EDITOR
                         readerOpen -> ProxyDestination.READER
+                        pdfReaderOpen -> ProxyDestination.PDF_READER
                         showTrash -> ProxyDestination.TRASH
+                        showLibrary -> ProxyDestination.LIBRARY
                         else -> ProxyDestination.NOTES
                     },
                     transitionSpec = {
@@ -375,6 +409,20 @@ fun ProxyScrollApp(
                                 },
                             )
                         }
+                    } else if (destination == ProxyDestination.PDF_READER) {
+                        openPdfDocument?.let { document ->
+                            PdfReaderScreen(
+                                document = document,
+                                onBack = {
+                                    pdfReaderOpen = false
+                                    openPdfDocument = null
+                                },
+                                onProgressChanged = { page, pageCount ->
+                                    libraryViewModel.updateProgress(document, page, pageCount)
+                                },
+                                onScrollQuietChanged = { scrollingQuiet = it },
+                            )
+                        }
                     } else if (destination == ProxyDestination.TRASH) {
                         TrashScreen(
                             notes = state.trash,
@@ -382,6 +430,21 @@ fun ProxyScrollApp(
                             onRestore = viewModel::restore,
                             onDeleteForever = viewModel::deleteForever,
                             onEmptyTrash = viewModel::emptyTrash,
+                        )
+                    } else if (destination == ProxyDestination.LIBRARY) {
+                        LibraryScreen(
+                            state = libraryState,
+                            onOpenNotes = { showLibrary = false },
+                            onImport = { uri, title ->
+                                val document = libraryViewModel.importPdf(uri, title)
+                                openPdfDocument = document
+                                pdfReaderOpen = true
+                            },
+                            onOpenDocument = { document ->
+                                openPdfDocument = document
+                                pdfReaderOpen = true
+                            },
+                            onDelete = libraryViewModel::delete,
                         )
                     } else {
                         NotesScreen(
@@ -424,6 +487,7 @@ fun ProxyScrollApp(
                             onScrollQuietChanged = { scrollingQuiet = it },
                             onOpenSettings = { showSettings = true },
                             onOpenTrash = { showTrash = true },
+                            onOpenLibrary = { showLibrary = true },
                             activeGroupFilter = activeGroupFilter,
                             onActiveGroupFilterChanged = onActiveGroupFilterChanged,
                         )
@@ -628,6 +692,7 @@ private fun NotesScreen(
     onScrollQuietChanged: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTrash: () -> Unit,
+    onOpenLibrary: () -> Unit,
     activeGroupFilter: String?,
     onActiveGroupFilterChanged: (String?) -> Unit,
 ) {
@@ -751,6 +816,15 @@ private fun NotesScreen(
     ) {
     Scaffold(
         containerColor = Color.Transparent,
+        bottomBar = {
+            if (!selectionMode) {
+                MainSectionBar(
+                    notesSelected = true,
+                    onOpenNotes = {},
+                    onOpenLibrary = onOpenLibrary,
+                )
+            }
+        },
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
@@ -1823,6 +1897,13 @@ private fun noteGroupColor(group: NoteGroup?): Color {
     return group?.let { Color(it.colorArgb) } ?: Color(0xFF8B93A7)
 }
 
+private fun NoteTextAlignment.toComposeTextAlign(): TextAlign = when (this) {
+    NoteTextAlignment.START -> TextAlign.Start
+    NoteTextAlignment.CENTER -> TextAlign.Center
+    NoteTextAlignment.END -> TextAlign.End
+    NoteTextAlignment.JUSTIFY -> TextAlign.Justify
+}
+
 private fun noteFlagColor(flag: NoteColorFlag): Color = when (flag) {
     NoteColorFlag.NONE -> Color(0xFF8B93A7)
     NoteColorFlag.SKY -> Color(0xFF65B9FF)
@@ -2033,7 +2114,10 @@ private fun NoteCard(
                         Spacer(Modifier.height(5.dp))
                         Text(
                             text = annotatedText(note.body, note.spans),
-                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.fillMaxWidth(),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                textAlign = note.textAlignment.toComposeTextAlign(),
+                            ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis,
@@ -2334,6 +2418,494 @@ private fun NoteFlagSwatch(
     }
 }
 
+@Composable
+private fun MainSectionBar(
+    notesSelected: Boolean,
+    onOpenNotes: () -> Unit,
+    onOpenLibrary: () -> Unit,
+) {
+    ProxySurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        role = ProxySurfaceRole.OVERLAY,
+        strong = true,
+        interactive = false,
+        deformContent = false,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            MotionOption(
+                label = "Заметки",
+                selected = notesSelected,
+                onClick = onOpenNotes,
+                modifier = Modifier.weight(1f),
+            )
+            MotionOption(
+                label = "Библиотека",
+                selected = !notesSelected,
+                onClick = onOpenLibrary,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryScreen(
+    state: LibraryUiState,
+    onOpenNotes: () -> Unit,
+    onImport: (String, String) -> Unit,
+    onOpenDocument: (LibraryDocument) -> Unit,
+    onDelete: (LibraryDocument) -> Unit,
+) {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            onImport(uri.toString(), pdfDisplayName(context, uri))
+        }
+    }
+    BackHandler(onBack = onOpenNotes)
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { ProxyBrandLockup() },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
+            )
+        },
+        bottomBar = {
+            MainSectionBar(
+                notesSelected = false,
+                onOpenNotes = onOpenNotes,
+                onOpenLibrary = {},
+            )
+        },
+        floatingActionButton = {
+            ProxySurface(
+                modifier = Modifier
+                    .size(60.dp)
+                    .animatedClick(
+                        onClick = { launcher.launch(arrayOf("application/pdf")) },
+                        pressedScale = 0.94f,
+                    ),
+                role = ProxySurfaceRole.BUTTON,
+                strong = true,
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Импортировать PDF",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(30.dp),
+                    )
+                }
+            }
+        },
+    ) { contentPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding)
+                .padding(horizontal = 16.dp),
+        ) {
+            Text(
+                text = "Библиотека",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = if (state.documents.isEmpty()) {
+                    "Импортируйте PDF и продолжайте чтение с последней страницы"
+                } else {
+                    "${state.documents.size} PDF · прогресс сохраняется локально"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(18.dp))
+            if (state.documents.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 96.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.Description,
+                            contentDescription = null,
+                            modifier = Modifier.size(54.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text("Здесь появятся ваши книги", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Нажмите + и выберите PDF-файл",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    itemsIndexed(
+                        items = state.documents,
+                        key = { _, document -> document.id },
+                    ) { _, document ->
+                        PdfLibraryCard(
+                            document = document,
+                            onOpen = { onOpenDocument(document) },
+                            onDelete = { onDelete(document) },
+                        )
+                    }
+                    item { Spacer(Modifier.height(96.dp)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PdfLibraryCard(
+    document: LibraryDocument,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val progress = if (document.pageCount > 0) {
+        ((document.lastPage + 1).toFloat() / document.pageCount).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    ProxySurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animatedClick(onClick = onOpen, pressedScale = 0.985f),
+        role = ProxySurfaceRole.CARD,
+        strong = document.lastPage > 0,
+        interactive = false,
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ProxyInsetSurface(
+                modifier = Modifier.size(54.dp),
+                role = ProxySurfaceRole.BUTTON,
+                selected = false,
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = document.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    text = if (document.pageCount > 0) {
+                        "Страница ${document.lastPage + 1} из ${document.pageCount}"
+                    } else {
+                        "PDF · ещё не открыт"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (document.pageCount > 0) {
+                    Spacer(Modifier.height(7.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)),
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(progress)
+                                .fillMaxHeight()
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                    }
+                }
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Убрать из библиотеки",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+private data class PdfPageRender(
+    val image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    val pageCount: Int = 0,
+    val actualPage: Int = 0,
+    val error: String? = null,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PdfReaderScreen(
+    document: LibraryDocument,
+    onBack: () -> Unit,
+    onProgressChanged: (Int, Int) -> Unit,
+    onScrollQuietChanged: (Boolean) -> Unit,
+) {
+    val context = LocalContext.current
+    var pageIndex by remember(document.id) {
+        mutableIntStateOf(document.lastPage.coerceAtLeast(0))
+    }
+    val scrollState = rememberScrollState()
+    val render by produceState(
+        initialValue = PdfPageRender(),
+        key1 = document.uri,
+        key2 = pageIndex,
+    ) {
+        value = withContext(Dispatchers.IO) {
+            renderPdfPage(context, Uri.parse(document.uri), pageIndex)
+        }
+    }
+    val currentScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collectLatest { scrolling ->
+                currentScrollQuietChanged(scrolling)
+                if (!scrolling) delay(160)
+            }
+    }
+    LaunchedEffect(render.pageCount, render.actualPage) {
+        if (render.pageCount > 0) {
+            if (pageIndex != render.actualPage) pageIndex = render.actualPage
+            onProgressChanged(render.actualPage, render.pageCount)
+            scrollState.scrollTo(0)
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { currentScrollQuietChanged(false) }
+    }
+    BackHandler(onBack = onBack)
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            document.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (render.pageCount > 0) {
+                            Text(
+                                "${render.actualPage + 1} / ${render.pageCount}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "В библиотеку")
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
+            )
+        },
+        bottomBar = {
+            ProxySurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                role = ProxySurfaceRole.OVERLAY,
+                strong = true,
+                interactive = false,
+                deformContent = false,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    IconButton(
+                        enabled = render.pageCount > 0 && render.actualPage > 0,
+                        onClick = { pageIndex = (render.actualPage - 1).coerceAtLeast(0) },
+                    ) {
+                        Icon(Icons.Default.NavigateBefore, contentDescription = "Предыдущая страница")
+                    }
+                    Text(
+                        text = if (render.pageCount > 0) {
+                            "Страница ${render.actualPage + 1}"
+                        } else {
+                            "Открываю PDF…"
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    IconButton(
+                        enabled = render.pageCount > 0 && render.actualPage < render.pageCount - 1,
+                        onClick = {
+                            pageIndex = (render.actualPage + 1).coerceAtMost(render.pageCount - 1)
+                        },
+                    ) {
+                        Icon(Icons.Default.NavigateNext, contentDescription = "Следующая страница")
+                    }
+                }
+            }
+        },
+    ) { contentPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                render.error != null -> Column(
+                    modifier = Modifier.padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("Не удалось открыть PDF", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        render.error.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                render.image == null -> CircularProgressIndicator()
+                else -> {
+                    val image = render.image ?: return@Box
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scrollState)
+                            .padding(horizontal = 8.dp, vertical = 10.dp),
+                    ) {
+                        ProxySurface(
+                            modifier = Modifier.fillMaxWidth(),
+                            role = ProxySurfaceRole.CARD,
+                            strong = true,
+                            interactive = false,
+                            deformContent = false,
+                        ) {
+                            Image(
+                                bitmap = image,
+                                contentDescription = "Страница ${render.actualPage + 1}",
+                                contentScale = ContentScale.FillWidth,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(image.width.toFloat() / image.height.toFloat()),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun pdfDisplayName(context: android.content.Context, uri: Uri): String {
+    val queried = runCatching {
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }.getOrNull()
+    return queried?.removeSuffix(".pdf")?.takeIf { it.isNotBlank() } ?: "PDF-документ"
+}
+
+private fun renderPdfPage(
+    context: android.content.Context,
+    uri: Uri,
+    requestedPage: Int,
+): PdfPageRender = runCatching {
+    val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
+        ?: error("Файл больше недоступен")
+    descriptor.use { file ->
+        PdfRenderer(file).use { renderer ->
+            if (renderer.pageCount <= 0) error("В документе нет страниц")
+            val actualPage = requestedPage.coerceIn(0, renderer.pageCount - 1)
+            renderer.openPage(actualPage).use { page ->
+                val targetWidth = 1400
+                val targetHeight = (targetWidth.toFloat() * page.height / page.width)
+                    .roundToInt()
+                    .coerceAtLeast(1)
+                val bitmap = Bitmap.createBitmap(
+                    targetWidth,
+                    targetHeight,
+                    Bitmap.Config.ARGB_8888,
+                )
+                bitmap.eraseColor(android.graphics.Color.WHITE)
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                PdfPageRender(
+                    image = bitmap.asImageBitmap(),
+                    pageCount = renderer.pageCount,
+                    actualPage = actualPage,
+                )
+            }
+        }
+    }
+}.getOrElse { error ->
+    PdfPageRender(error = error.message ?: "Неизвестная ошибка чтения")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NoteReaderScreen(
@@ -2352,13 +2924,6 @@ private fun NoteReaderScreen(
         mutableStateOf<TextLayoutResult?>(null)
     }
     val accentColor = group?.let(::noteGroupColor)
-    val transformState = rememberTransformableState { zoomChange, _, _ ->
-        if (zoomChange.isFinite() && kotlin.math.abs(zoomChange - 1f) > 0.002f) {
-            onSettingsChanged(
-                settings.copy(fontScale = settings.fontScale * zoomChange).normalized(),
-            )
-        }
-    }
     val currentScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
     LaunchedEffect(scrollState) {
         snapshotFlow { scrollState.isScrollInProgress }
@@ -2473,17 +3038,22 @@ private fun NoteReaderScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 340.dp)
-                        .transformable(transformState)
-                        .pointerInput(note.id, textLayout, settings.fontScale) {
-                            detectTapGestures(
-                                onTap = { position ->
-                                    val cursor = textLayout
-                                        ?.getOffsetForPosition(position)
-                                        ?: note.body.length
-                                    onEdit(cursor)
-                                },
-                            )
-                        },
+                        .readerTextGestures(
+                            key = Triple(note.id, textLayout, settings.fontScale),
+                            onTap = { position ->
+                                val cursor = textLayout
+                                    ?.getOffsetForPosition(position)
+                                    ?: note.body.length
+                                onEdit(cursor)
+                            },
+                            onZoom = { zoomChange ->
+                                onSettingsChanged(
+                                    settings.copy(
+                                        fontScale = settings.fontScale * zoomChange,
+                                    ).normalized(),
+                                )
+                            },
+                        ),
                 ) {
                     if (note.body.isBlank()) {
                         Text(
@@ -2506,6 +3076,7 @@ private fun NoteReaderScreen(
                                 lineHeight = (
                                     28f * settings.fontScale * settings.lineHeight
                                 ).sp,
+                                textAlign = note.textAlignment.toComposeTextAlign(),
                             ),
                             color = MaterialTheme.colorScheme.onBackground,
                             onTextLayout = { textLayout = it },
@@ -2560,6 +3131,45 @@ private fun NoteReaderScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+private fun Modifier.readerTextGestures(
+    key: Any?,
+    onTap: (Offset) -> Unit,
+    onZoom: (Float) -> Unit,
+): Modifier = pointerInput(key) {
+    awaitEachGesture {
+        val firstDown = awaitFirstDown(requireUnconsumed = false)
+        val startPosition = firstDown.position
+        val touchSlop = viewConfiguration.touchSlop
+        var maximumMovement = 0f
+        var usedMultiplePointers = false
+        var event = awaitPointerEvent()
+        do {
+            val pressed = event.changes.filter { it.pressed }
+            if (pressed.size >= 2) {
+                usedMultiplePointers = true
+                val zoom = event.calculateZoom()
+                if (zoom.isFinite() && kotlin.math.abs(zoom - 1f) > 0.002f) {
+                    onZoom(zoom)
+                    event.changes.forEach { it.consume() }
+                }
+            } else {
+                event.changes.firstOrNull { it.id == firstDown.id }?.let { change ->
+                    maximumMovement = maxOf(
+                        maximumMovement,
+                        (change.position - startPosition).getDistance(),
+                    )
+                }
+            }
+            if (event.changes.none { it.pressed }) break
+            event = awaitPointerEvent()
+        } while (true)
+
+        if (!usedMultiplePointers && maximumMovement < touchSlop) {
+            onTap(startPosition)
         }
     }
 }
@@ -2640,7 +3250,14 @@ private fun NoteEditorScreen(
     initialBodyCursor: Int?,
     groups: List<NoteGroup>,
     inputMotion: InputMotion,
-    onSave: (Note?, String, String, List<NoteSpan>, String?) -> Note?,
+    onSave: (
+        Note?,
+        String,
+        String,
+        List<NoteSpan>,
+        NoteTextAlignment,
+        String?,
+    ) -> Note?,
     onDelete: (Note) -> Unit,
     onClose: (Note?) -> Unit,
     onTypingQuietChanged: (Boolean) -> Unit,
@@ -2649,6 +3266,9 @@ private fun NoteEditorScreen(
     var title by remember(note?.id) { mutableStateOf(note?.title.orEmpty()) }
     var selectedGroupId by remember(note?.id) {
         mutableStateOf(note?.groupId)
+    }
+    var textAlignment by remember(note?.id) {
+        mutableStateOf(note?.textAlignment ?: NoteTextAlignment.START)
     }
     val selectedGroup = groups.firstOrNull { it.id == selectedGroupId }
     val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
@@ -2717,6 +3337,7 @@ private fun NoteEditorScreen(
             title,
             richText.value.text,
             richText.toSpans(),
+            textAlignment,
             selectedGroupId,
         )
         if (result != null) savedNote = result
@@ -2766,7 +3387,7 @@ private fun NoteEditorScreen(
         bodyFocusRequester.requestFocus()
     }
 
-    LaunchedEffect(title, richText.revision, selectedGroupId) {
+    LaunchedEffect(title, richText.revision, selectedGroupId, textAlignment) {
         if (!hasChanges) return@LaunchedEffect
         delay(inputMotion.autosaveDelayMillis)
         saveNow()
@@ -2889,8 +3510,16 @@ private fun NoteEditorScreen(
         bottomBar = {
             FormattingToolbar(
                 richText = richText,
+                textAlignment = textAlignment,
+                onTextAlignmentChanged = { alignment ->
+                    if (textAlignment != alignment) {
+                        textAlignment = alignment
+                        hasChanges = true
+                        saveState = EditorSaveState.EDITING
+                    }
+                },
                 modifier = Modifier
-                    .then(if (bodyFocused) Modifier else Modifier.navigationBarsPadding())
+                    .navigationBarsPadding()
                     .padding(horizontal = 12.dp, vertical = 4.dp),
                 onFormatChanged = {
                     hasChanges = true
@@ -3038,6 +3667,7 @@ private fun NoteEditorScreen(
                     visualTransformation = richText.visualTransformation,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = textAlignment.toComposeTextAlign(),
                     ),
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.Sentences,
@@ -3144,6 +3774,8 @@ private fun TypingOpticalTrail(
 @Composable
 private fun FormattingToolbar(
     richText: RichTextState,
+    textAlignment: NoteTextAlignment,
+    onTextAlignmentChanged: (NoteTextAlignment) -> Unit,
     modifier: Modifier = Modifier,
     onFormatChanged: () -> Unit,
 ) {
@@ -3212,6 +3844,12 @@ private fun FormattingToolbar(
                         .width(1.dp)
                         .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
                 )
+                TextPresetMenu(
+                    onSelected = { size, bold ->
+                        richText.applyTextPreset(size, bold)
+                        onFormatChanged()
+                    },
+                )
                 FormatButton(
                     selected = richText.boldActive,
                     onClick = {
@@ -3268,6 +3906,136 @@ private fun FormattingToolbar(
                     onCustomSize = {
                         richText.setFontSize(it)
                         onFormatChanged()
+                    },
+                )
+                AlignmentMenu(
+                    alignment = textAlignment,
+                    onSelected = onTextAlignmentChanged,
+                )
+            }
+        }
+    }
+}
+
+private data class EditorTextPreset(
+    val label: String,
+    val description: String,
+    val sizeSp: Int,
+    val bold: Boolean,
+)
+
+@Composable
+private fun TextPresetMenu(
+    onSelected: (Int, Boolean) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val presets = remember {
+        listOf(
+            EditorTextPreset("Обычный текст", "19 sp", 19, false),
+            EditorTextPreset("Заголовок 1", "32 sp · жирный", 32, true),
+            EditorTextPreset("Заголовок 2", "26 sp · жирный", 26, true),
+            EditorTextPreset("Подзаголовок", "22 sp · жирный", 22, true),
+            EditorTextPreset("Подпись", "14 sp", 14, false),
+        )
+    }
+    Box {
+        FormatButton(
+            selected = expanded,
+            onClick = { expanded = true },
+        ) {
+            Text("Aa", style = MaterialTheme.typography.titleMedium)
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            presets.forEach { preset ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(preset.label, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                preset.description,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    onClick = {
+                        onSelected(preset.sizeSp, preset.bold)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlignmentMenu(
+    alignment: NoteTextAlignment,
+    onSelected: (NoteTextAlignment) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        FormatButton(
+            selected = expanded || alignment != NoteTextAlignment.START,
+            onClick = { expanded = true },
+        ) {
+            when (alignment) {
+                NoteTextAlignment.START -> Icon(
+                    Icons.Default.FormatAlignLeft,
+                    contentDescription = "Выравнивание",
+                )
+                NoteTextAlignment.CENTER -> Icon(
+                    Icons.Default.FormatAlignCenter,
+                    contentDescription = "Выравнивание по центру",
+                )
+                NoteTextAlignment.END -> Icon(
+                    Icons.Default.FormatAlignRight,
+                    contentDescription = "Выравнивание справа",
+                )
+                NoteTextAlignment.JUSTIFY -> Icon(
+                    Icons.Default.FormatAlignJustify,
+                    contentDescription = "Выравнивание по ширине",
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            NoteTextAlignment.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.displayName) },
+                    leadingIcon = {
+                        when (option) {
+                            NoteTextAlignment.START -> Icon(
+                                Icons.Default.FormatAlignLeft,
+                                contentDescription = null,
+                            )
+                            NoteTextAlignment.CENTER -> Icon(
+                                Icons.Default.FormatAlignCenter,
+                                contentDescription = null,
+                            )
+                            NoteTextAlignment.END -> Icon(
+                                Icons.Default.FormatAlignRight,
+                                contentDescription = null,
+                            )
+                            NoteTextAlignment.JUSTIFY -> Icon(
+                                Icons.Default.FormatAlignJustify,
+                                contentDescription = null,
+                            )
+                        }
+                    },
+                    trailingIcon = if (option == alignment) {
+                        { Icon(Icons.Default.Check, contentDescription = "Выбрано") }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        onSelected(option)
+                        expanded = false
                     },
                 )
             }
