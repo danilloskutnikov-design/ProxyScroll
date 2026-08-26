@@ -144,9 +144,12 @@ import com.proxyscroll.app.BuildConfig
 import com.proxyscroll.app.domain.AppTheme
 import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.InterfaceShape
+import com.proxyscroll.app.domain.LabsSettings
 import com.proxyscroll.app.domain.MaterialDepth
 import com.proxyscroll.app.domain.MaterialMotionQuality
+import com.proxyscroll.app.domain.MAX_LABS_MOTION_STRENGTH
 import com.proxyscroll.app.domain.MAX_STAIN_INTENSITY
+import com.proxyscroll.app.domain.MIN_LABS_MOTION_STRENGTH
 import com.proxyscroll.app.domain.MIN_STAIN_INTENSITY
 import com.proxyscroll.app.domain.MAX_INTERFACE_CORNER_DP
 import com.proxyscroll.app.domain.MIN_INTERFACE_CORNER_DP
@@ -164,6 +167,10 @@ import com.proxyscroll.app.ui.editor.MAX_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.MIN_NOTE_FONT_SIZE_SP
 import com.proxyscroll.app.ui.editor.RichTextState
 import com.proxyscroll.app.ui.editor.annotatedText
+import com.proxyscroll.app.ui.labs.MotionCompensationFrame
+import com.proxyscroll.app.ui.labs.MotionSensorAvailability
+import com.proxyscroll.app.ui.labs.TravelMotionCues
+import com.proxyscroll.app.ui.labs.rememberMotionCompensationState
 import com.proxyscroll.app.ui.theme.LocalProxyShape
 import com.proxyscroll.app.ui.theme.LocalProxyVisualStyle
 import com.proxyscroll.app.ui.theme.LocalMaterialMotionProfile
@@ -185,6 +192,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 private enum class ProxyDestination { NOTES, EDITOR, TRASH }
+private enum class SettingsTab { APPEARANCE, LABS }
 
 @Composable
 fun ProxyScrollApp(
@@ -197,6 +205,8 @@ fun ProxyScrollApp(
     onInterfaceShapeChanged: (InterfaceShape) -> Unit,
     stainSettings: StainSettings,
     onStainSettingsChanged: (StainSettings) -> Unit,
+    labsSettings: LabsSettings,
+    onLabsSettingsChanged: (LabsSettings) -> Unit,
     activeGroupFilter: String?,
     onActiveGroupFilterChanged: (String?) -> Unit,
 ) {
@@ -210,6 +220,11 @@ fun ProxyScrollApp(
     var showSettings by remember { mutableStateOf(false) }
     var typingQuiet by remember { mutableStateOf(false) }
     var scrollingQuiet by remember { mutableStateOf(false) }
+    val motionCompensation = rememberMotionCompensationState(
+        sensorsEnabled = labsSettings.sensorsEnabled,
+    )
+    val microStabilizationActive = labsSettings.microStabilizationEnabled &&
+        !editorOpen && !showTrash && !showSettings && !scrollingQuiet
     val settingsChromeShape = remember(showSettings) {
         interfaceShape.resolveFor(selectedTheme)
     }
@@ -255,6 +270,16 @@ fun ProxyScrollApp(
                     modifier = Modifier.fillMaxSize(),
                 )
                 AnimatedContent(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            if (microStabilizationActive) {
+                                translationX = motionCompensation.frame.shakeX *
+                                    5.dp.toPx() * labsSettings.motionStrength
+                                translationY = motionCompensation.frame.shakeY *
+                                    5.dp.toPx() * labsSettings.motionStrength
+                            }
+                        },
                     targetState = when {
                         editorOpen -> ProxyDestination.EDITOR
                         showTrash -> ProxyDestination.TRASH
@@ -357,6 +382,15 @@ fun ProxyScrollApp(
                 }
             }
 
+            TravelMotionCues(
+                frame = motionCompensation.frame,
+                settings = labsSettings,
+                flat = staticLiteLife,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(6f),
+            )
+
             AnimatedVisibility(
                 visible = showSettings && !editorOpen && !showTrash,
                 modifier = Modifier
@@ -400,6 +434,10 @@ fun ProxyScrollApp(
                                 onInterfaceShapeChanged = onInterfaceShapeChanged,
                                 stainSettings = stainSettings,
                                 onStainSettingsChanged = onStainSettingsChanged,
+                                labsSettings = labsSettings,
+                                onLabsSettingsChanged = onLabsSettingsChanged,
+                                motionAvailability = motionCompensation.availability,
+                                motionFrame = motionCompensation.frame,
                                 onDismiss = { showSettings = false },
                             )
                         }
@@ -3035,8 +3073,13 @@ private fun SettingsSheet(
     onInterfaceShapeChanged: (InterfaceShape) -> Unit,
     stainSettings: StainSettings,
     onStainSettingsChanged: (StainSettings) -> Unit,
+    labsSettings: LabsSettings,
+    onLabsSettingsChanged: (LabsSettings) -> Unit,
+    motionAvailability: MotionSensorAvailability,
+    motionFrame: MotionCompensationFrame,
     onDismiss: () -> Unit,
 ) {
+    var settingsTab by remember { mutableStateOf(SettingsTab.APPEARANCE) }
     val sheetCorner = (LocalProxyShape.current.globalCornerDp + 8).coerceAtMost(32).dp
     val resolvedShape = interfaceShape.resolveFor(selectedTheme)
     val themeShapeLabel = when (selectedTheme) {
@@ -3114,21 +3157,54 @@ private fun SettingsSheet(
                     Column(Modifier.weight(1f)) {
                         Text("Настройки", style = MaterialTheme.typography.headlineMedium)
                         Text(
-                            text = "Материал и пластика интерфейса",
+                            text = if (settingsTab == SettingsTab.APPEARANCE) {
+                                "Материал и пластика интерфейса"
+                            } else {
+                                "Экспериментальные режимы движения"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(
-                        onClick = { onInterfaceShapeChanged(InterfaceShape()) },
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Сбросить форму")
+                    if (settingsTab == SettingsTab.APPEARANCE) {
+                        IconButton(
+                            onClick = { onInterfaceShapeChanged(InterfaceShape()) },
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Сбросить форму")
+                        }
                     }
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.Close, contentDescription = "Закрыть настройки")
                     }
                 }
                 Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    MotionOption(
+                        label = "Оформление",
+                        selected = settingsTab == SettingsTab.APPEARANCE,
+                        onClick = { settingsTab = SettingsTab.APPEARANCE },
+                        modifier = Modifier.weight(1f),
+                    )
+                    MotionOption(
+                        label = "ProxyScroll Labs",
+                        selected = settingsTab == SettingsTab.LABS,
+                        onClick = { settingsTab = SettingsTab.LABS },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(18.dp))
+                if (settingsTab == SettingsTab.LABS) {
+                    LabsSettingsPanel(
+                        settings = labsSettings,
+                        onSettingsChanged = onLabsSettingsChanged,
+                        availability = motionAvailability,
+                        frame = motionFrame,
+                        flat = selectedTheme == AppTheme.LITE_LIFE,
+                    )
+                } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3538,6 +3614,7 @@ private fun SettingsSheet(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                }
                 Spacer(Modifier.height(20.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
                 Spacer(Modifier.height(12.dp))
@@ -3547,6 +3624,209 @@ private fun SettingsSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun LabsSettingsPanel(
+    settings: LabsSettings,
+    onSettingsChanged: (LabsSettings) -> Unit,
+    availability: MotionSensorAvailability,
+    frame: MotionCompensationFrame,
+    flat: Boolean,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Motion Comfort", style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = "Телефон реагирует на физическое движение",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        ProxyInsetSurface(
+            role = ProxySurfaceRole.BUTTON,
+            selected = true,
+        ) {
+            Text(
+                text = "LABS",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            )
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+    MotionLabToggle(
+        title = "Micro Stabilization",
+        description = if (availability.rotation) {
+            "Компенсирует только мелкую угловую тряску в списке. Отключается при прокрутке и редактировании."
+        } else {
+            "На этом устройстве не найден датчик вращения."
+        },
+        checked = settings.microStabilizationEnabled && availability.rotation,
+        enabled = availability.rotation,
+        onCheckedChange = {
+            onSettingsChanged(settings.copy(microStabilizationEnabled = it))
+        },
+    )
+    Spacer(Modifier.height(10.dp))
+    MotionLabToggle(
+        title = "Travel Cues",
+        description = if (availability.acceleration) {
+            "Периферийные маркеры показывают направление ускорения, не двигая текст и элементы управления."
+        } else {
+            "На этом устройстве не найден датчик ускорения."
+        },
+        checked = settings.travelCuesEnabled && availability.acceleration,
+        enabled = availability.acceleration,
+        onCheckedChange = {
+            onSettingsChanged(settings.copy(travelCuesEnabled = it))
+        },
+    )
+
+    AnimatedVisibility(
+        visible = settings.sensorsEnabled,
+        enter = fadeIn(tween(180)) + slideInVertically(tween(240)) { -it / 5 },
+        exit = fadeOut(tween(140)) + slideOutVertically(tween(180)) { -it / 5 },
+    ) {
+        Column {
+            Spacer(Modifier.height(18.dp))
+            Row(Modifier.fillMaxWidth()) {
+                Text("Сила компенсации", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "${(settings.motionStrength * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Slider(
+                value = settings.motionStrength,
+                onValueChange = {
+                    onSettingsChanged(settings.copy(motionStrength = it).normalized())
+                },
+                valueRange = MIN_LABS_MOTION_STRENGTH..MAX_LABS_MOTION_STRENGTH,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(Modifier.fillMaxWidth()) {
+                Text(
+                    "Тише",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "Сильнее",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("Живой тест датчиков", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            ProxyInsetSurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(154.dp),
+                role = ProxySurfaceRole.INPUT,
+                selected = true,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    TravelMotionCues(
+                        frame = frame,
+                        settings = settings,
+                        flat = flat,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .graphicsLayer {
+                                if (settings.microStabilizationEnabled) {
+                                    translationX = frame.shakeX * 5.dp.toPx() *
+                                        settings.motionStrength
+                                    translationY = frame.shakeY * 5.dp.toPx() *
+                                        settings.motionStrength
+                                }
+                            }
+                            .padding(horizontal = 46.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = "Двигайте телефон",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Текст компенсирует мелкую тряску, точки показывают ускорение",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(16.dp))
+    ProxyInsetSurface(
+        modifier = Modifier.fillMaxWidth(),
+        role = ProxySurfaceRole.CARD,
+    ) {
+        Text(
+            text = "Экспериментальная функция: она может улучшить читаемость в движении, но не является медицинским средством от укачивания. Если становится некомфортно — отключите режим.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(14.dp),
+        )
+    }
+}
+
+@Composable
+private fun MotionLabToggle(
+    title: String,
+    description: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    ProxyInsetSurface(
+        modifier = Modifier.fillMaxWidth(),
+        role = ProxySurfaceRole.CARD,
+        selected = checked,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(
+                checked = checked,
+                enabled = enabled,
+                onCheckedChange = onCheckedChange,
+            )
         }
     }
 }
