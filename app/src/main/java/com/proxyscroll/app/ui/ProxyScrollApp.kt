@@ -72,6 +72,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -90,6 +91,7 @@ import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.NavigateBefore
 import androidx.compose.material.icons.filled.NavigateNext
 import androidx.compose.material.icons.filled.Palette
@@ -177,6 +179,7 @@ import com.proxyscroll.app.domain.InputMotion
 import com.proxyscroll.app.domain.InterfaceShape
 import com.proxyscroll.app.domain.LabsSettings
 import com.proxyscroll.app.domain.LibraryDocument
+import com.proxyscroll.app.domain.LibraryReadingStatus
 import com.proxyscroll.app.domain.MaterialDepth
 import com.proxyscroll.app.domain.MaterialMotionQuality
 import com.proxyscroll.app.domain.MAX_LABS_MOTION_STRENGTH
@@ -213,6 +216,7 @@ import com.proxyscroll.app.ui.labs.rememberMotionCompensationState
 import com.proxyscroll.app.ui.theme.LocalProxyShape
 import com.proxyscroll.app.ui.theme.LocalProxyVisualStyle
 import com.proxyscroll.app.ui.theme.LocalMaterialMotionProfile
+import com.proxyscroll.app.ui.theme.LocalStainPaletteColors
 import com.proxyscroll.app.ui.theme.LocalStainSettings
 import com.proxyscroll.app.ui.theme.ProxyBrandLockup
 import com.proxyscroll.app.ui.theme.ProxyScrollTheme
@@ -435,6 +439,9 @@ fun ProxyScrollApp(
                         LibraryScreen(
                             state = libraryState,
                             onOpenNotes = { showLibrary = false },
+                            onOpenSettings = { showSettings = true },
+                            onQueryChange = libraryViewModel::setQuery,
+                            onFilterChange = libraryViewModel::setFilter,
                             onImport = { uri, title ->
                                 val document = libraryViewModel.importPdf(uri, title)
                                 openPdfDocument = document
@@ -444,6 +451,7 @@ fun ProxyScrollApp(
                                 openPdfDocument = document
                                 pdfReaderOpen = true
                             },
+                            onStatusChange = libraryViewModel::updateStatus,
                             onDelete = libraryViewModel::delete,
                         )
                     } else {
@@ -822,6 +830,10 @@ private fun NotesScreen(
                     notesSelected = true,
                     onOpenNotes = {},
                     onOpenLibrary = onOpenLibrary,
+                    onPrimaryAction = onCreate,
+                    primaryActionLabel = "Новая",
+                    primaryActionDescription = "Создать заметку",
+                    onOpenSettings = onOpenSettings,
                 )
             }
         },
@@ -2423,6 +2435,10 @@ private fun MainSectionBar(
     notesSelected: Boolean,
     onOpenNotes: () -> Unit,
     onOpenLibrary: () -> Unit,
+    onPrimaryAction: () -> Unit,
+    primaryActionLabel: String,
+    primaryActionDescription: String,
+    onOpenSettings: () -> Unit,
 ) {
     ProxySurface(
         modifier = Modifier
@@ -2437,22 +2453,108 @@ private fun MainSectionBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(horizontal = 4.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            MotionOption(
+            MainNavigationItem(
                 label = "Заметки",
                 selected = notesSelected,
                 onClick = onOpenNotes,
+                icon = {
+                    Icon(Icons.Default.Description, contentDescription = null)
+                },
                 modifier = Modifier.weight(1f),
             )
-            MotionOption(
+            MainNavigationItem(
                 label = "Библиотека",
                 selected = !notesSelected,
                 onClick = onOpenLibrary,
+                icon = {
+                    Icon(Icons.Default.MenuBook, contentDescription = null)
+                },
+                modifier = Modifier.weight(1f),
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .animatedClick(onClick = onPrimaryAction, pressedScale = 0.94f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                ProxyInsetSurface(
+                    modifier = Modifier.size(46.dp),
+                    role = ProxySurfaceRole.BUTTON,
+                    selected = true,
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = primaryActionDescription,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(27.dp),
+                        )
+                    }
+                }
+                Text(
+                    text = primaryActionLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            MainNavigationItem(
+                label = "Настройки",
+                selected = false,
+                onClick = onOpenSettings,
+                icon = {
+                    Icon(Icons.Default.Settings, contentDescription = null)
+                },
                 modifier = Modifier.weight(1f),
             )
         }
+    }
+}
+
+@Composable
+private fun MainNavigationItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val contentColor = if (selected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(
+        modifier = modifier
+            .height(62.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                } else {
+                    Color.Transparent
+                },
+            )
+            .animatedClick(onClick = onClick, pressedScale = 0.96f)
+            .padding(horizontal = 4.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides contentColor) {
+            Box(Modifier.size(25.dp), contentAlignment = Alignment.Center) { icon() }
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -2461,11 +2563,17 @@ private fun MainSectionBar(
 private fun LibraryScreen(
     state: LibraryUiState,
     onOpenNotes: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onQueryChange: (String) -> Unit,
+    onFilterChange: (LibraryFilter) -> Unit,
     onImport: (String, String) -> Unit,
     onOpenDocument: (LibraryDocument) -> Unit,
+    onStatusChange: (LibraryDocument, LibraryReadingStatus) -> Unit,
     onDelete: (LibraryDocument) -> Unit,
 ) {
     val context = LocalContext.current
+    var searchExpanded by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<LibraryDocument?>(null) }
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -2479,7 +2587,46 @@ private fun LibraryScreen(
             onImport(uri.toString(), pdfDisplayName(context, uri))
         }
     }
-    BackHandler(onBack = onOpenNotes)
+    val launchImport = { launcher.launch(arrayOf("application/pdf")) }
+    val continueDocument = remember(state.documents) {
+        state.documents.firstOrNull {
+            it.readingStatus == LibraryReadingStatus.READING && it.pageCount > 0
+        } ?: state.documents.firstOrNull()
+    }
+    BackHandler {
+        if (searchExpanded || state.query.isNotBlank()) {
+            searchExpanded = false
+            onQueryChange("")
+        } else {
+            onOpenNotes()
+        }
+    }
+
+    pendingDelete?.let { document ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Убрать из библиотеки?") },
+            text = {
+                Text(
+                    "Файл «${document.title}» останется на устройстве, " +
+                        "но прогресс чтения ProxyScroll будет удалён.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete(document)
+                        pendingDelete = null
+                    },
+                ) {
+                    Text("Убрать", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Отмена") }
+            },
+        )
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -2497,92 +2644,190 @@ private fun LibraryScreen(
                 notesSelected = false,
                 onOpenNotes = onOpenNotes,
                 onOpenLibrary = {},
+                onPrimaryAction = launchImport,
+                primaryActionLabel = "Импорт",
+                primaryActionDescription = "Импортировать PDF",
+                onOpenSettings = onOpenSettings,
             )
         },
-        floatingActionButton = {
-            ProxySurface(
-                modifier = Modifier
-                    .size(60.dp)
-                    .animatedClick(
-                        onClick = { launcher.launch(arrayOf("application/pdf")) },
-                        pressedScale = 0.94f,
-                    ),
-                role = ProxySurfaceRole.BUTTON,
-                strong = true,
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Add,
-                        contentDescription = "Импортировать PDF",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(30.dp),
-                    )
-                }
-            }
-        },
     ) { contentPadding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(contentPadding)
                 .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(
-                text = "Библиотека",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = if (state.documents.isEmpty()) {
-                    "Импортируйте PDF и продолжайте чтение с последней страницы"
-                } else {
-                    "${state.documents.size} PDF · прогресс сохраняется локально"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(18.dp))
-            if (state.documents.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 96.dp),
-                    contentAlignment = Alignment.Center,
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.Description,
-                            contentDescription = null,
-                            modifier = Modifier.size(54.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text("Здесь появятся ваши книги", style = MaterialTheme.typography.titleLarge)
-                        Spacer(Modifier.height(6.dp))
+                    Column(Modifier.weight(1f)) {
                         Text(
-                            "Нажмите + и выберите PDF-файл",
+                            text = "Библиотека",
+                            style = MaterialTheme.typography.headlineLarge,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        Text(
+                            text = if (state.documents.isEmpty()) {
+                                "Личное пространство для чтения и знаний"
+                            } else {
+                                "${state.documents.size} ${pdfCountLabel(state.documents.size)} · локально"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    IconButton(
+                        onClick = {
+                            searchExpanded = !searchExpanded
+                            if (!searchExpanded) onQueryChange("")
+                        },
+                    ) {
+                        Icon(
+                            if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
+                            contentDescription = if (searchExpanded) "Закрыть поиск" else "Поиск",
+                        )
+                    }
+                }
+            }
+
+            if (searchExpanded || state.query.isNotBlank()) {
+                item {
+                    OutlinedTextField(
+                        value = state.query,
+                        onValueChange = onQueryChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null)
+                        },
+                        trailingIcon = {
+                            if (state.query.isNotBlank()) {
+                                IconButton(onClick = { onQueryChange("") }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Очистить")
+                                }
+                            }
+                        },
+                        placeholder = { Text("Название книги или документа") },
+                        shape = RoundedCornerShape(18.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.30f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.18f),
+                        ),
+                    )
+                }
+            }
+
+            if (state.documents.isEmpty()) {
+                item {
+                    EmptyLibraryState(onImport = launchImport)
                 }
             } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
+                if (state.query.isBlank() && state.filter == LibraryFilter.ALL) {
+                    continueDocument?.let { document ->
+                        item {
+                            ContinueReadingCard(
+                                document = document,
+                                onOpen = { onOpenDocument(document) },
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    LibraryFilterRow(
+                        selected = state.filter,
+                        onSelected = onFilterChange,
+                    )
+                }
+
+                if (state.visibleDocuments.isEmpty()) {
+                    item { EmptyLibrarySearchState() }
+                } else {
+                    item {
+                        LibrarySectionHeader(
+                            title = "Моя полка",
+                            detail = "${state.visibleDocuments.size} на полке",
+                        )
+                    }
+                    item {
+                        VirtualBookShelf(
+                            documents = state.visibleDocuments,
+                            onOpenDocument = onOpenDocument,
+                        )
+                    }
+                    item {
+                        LibrarySectionHeader(
+                            title = "Все документы",
+                            detail = state.visibleDocuments.size.toString(),
+                        )
+                    }
                     itemsIndexed(
-                        items = state.documents,
+                        items = state.visibleDocuments,
                         key = { _, document -> document.id },
                     ) { _, document ->
                         PdfLibraryCard(
                             document = document,
                             onOpen = { onOpenDocument(document) },
-                            onDelete = { onDelete(document) },
+                            onStatusChange = { status -> onStatusChange(document, status) },
+                            onDelete = { pendingDelete = document },
                         )
                     }
-                    item { Spacer(Modifier.height(96.dp)) }
+                    item { KnowledgeHubPreview() }
+                }
+            }
+            item { Spacer(Modifier.height(6.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun EmptyLibraryState(
+    onImport: () -> Unit,
+) {
+    ProxySurface(
+        modifier = Modifier.fillMaxWidth(),
+        role = ProxySurfaceRole.CARD,
+        strong = true,
+        interactive = false,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 38.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                Icons.Default.MenuBook,
+                contentDescription = null,
+                modifier = Modifier.size(58.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(14.dp))
+            Text("Соберите свою первую полку", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(7.dp))
+            Text(
+                "Импортируйте PDF. Файл останется на устройстве, а ProxyScroll " +
+                    "запомнит последнюю страницу.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(18.dp))
+            ProxyInsetSurface(
+                modifier = Modifier
+                    .height(48.dp)
+                    .animatedClick(onClick = onImport, pressedScale = 0.96f),
+                role = ProxySurfaceRole.BUTTON,
+                selected = true,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Text("Импортировать PDF", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -2590,66 +2835,63 @@ private fun LibraryScreen(
 }
 
 @Composable
-private fun PdfLibraryCard(
+private fun ContinueReadingCard(
     document: LibraryDocument,
     onOpen: () -> Unit,
-    onDelete: () -> Unit,
 ) {
-    val progress = if (document.pageCount > 0) {
-        ((document.lastPage + 1).toFloat() / document.pageCount).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
+    val progress = libraryProgress(document)
     ProxySurface(
         modifier = Modifier
             .fillMaxWidth()
-            .animatedClick(onClick = onOpen, pressedScale = 0.985f),
+            .animatedClick(onClick = onOpen, pressedScale = 0.98f),
         role = ProxySurfaceRole.CARD,
-        strong = document.lastPage > 0,
+        strong = true,
         interactive = false,
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            ProxyInsetSurface(
-                modifier = Modifier.size(54.dp),
-                role = ProxySurfaceRole.BUTTON,
-                selected = false,
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Description,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
+            LibraryBookCover(
+                document = document,
+                modifier = Modifier
+                    .width(92.dp)
+                    .height(130.dp),
+            )
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = document.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
+                    "Продолжить чтение",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    document.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(5.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    text = if (document.pageCount > 0) {
-                        "Страница ${document.lastPage + 1} из ${document.pageCount}"
-                    } else {
-                        "PDF · ещё не открыт"
-                    },
-                    style = MaterialTheme.typography.labelMedium,
+                    libraryPositionLabel(document),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (document.pageCount > 0) {
-                    Spacer(Modifier.height(7.dp))
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${(progress * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(10.dp))
                     Box(
                         Modifier
-                            .fillMaxWidth()
-                            .height(3.dp)
-                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)),
+                            .weight(1f)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)),
                     ) {
                         Box(
                             Modifier
@@ -2660,14 +2902,413 @@ private fun PdfLibraryCard(
                     }
                 }
             }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Убрать из библиотеки",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Icon(
+                Icons.Default.NavigateNext,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibraryFilterRow(
+    selected: LibraryFilter,
+    onSelected: (LibraryFilter) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        LibraryFilter.entries.forEach { filter ->
+            MotionOption(
+                label = filter.libraryLabel(),
+                selected = filter == selected,
+                onClick = { onSelected(filter) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibrarySectionHeader(
+    title: String,
+    detail: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+        Text(
+            detail,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun VirtualBookShelf(
+    documents: List<LibraryDocument>,
+    onOpenDocument: (LibraryDocument) -> Unit,
+) {
+    val palette = LocalStainPaletteColors.current
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            documents.forEach { document ->
+                Column(
+                    modifier = Modifier
+                        .width(126.dp)
+                        .animatedClick(
+                            onClick = { onOpenDocument(document) },
+                            pressedScale = 0.965f,
+                        ),
+                ) {
+                    LibraryBookCover(
+                        document = document,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(174.dp),
+                    )
+                    Spacer(Modifier.height(7.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${(libraryProgress(document) * 100).roundToInt()}%",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = libraryAccent(document),
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            document.readingStatus.libraryLabel(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
         }
+        Spacer(Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(9.dp)
+                .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            palette.primary.copy(alpha = 0.32f),
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                            Color.Black.copy(alpha = 0.34f),
+                        ),
+                    ),
+                ),
+        )
+    }
+}
+
+@Composable
+private fun LibraryBookCover(
+    document: LibraryDocument,
+    modifier: Modifier = Modifier,
+) {
+    val accent = libraryAccent(document)
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(topStart = 7.dp, topEnd = 11.dp, bottomEnd = 7.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        accent.copy(alpha = 0.34f),
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    ),
+                ),
+            )
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.26f),
+                RoundedCornerShape(topStart = 7.dp, topEnd = 11.dp, bottomEnd = 7.dp),
+            ),
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .width(5.dp)
+                .background(accent),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 14.dp, top = 12.dp, end = 10.dp, bottom = 12.dp),
+        ) {
+            Text(
+                "PDF",
+                style = MaterialTheme.typography.labelSmall,
+                color = accent,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                document.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(9.dp))
+            Text(
+                if (document.pageCount > 0) {
+                    "${document.lastPage + 1} / ${document.pageCount}"
+                } else {
+                    "На полке"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Box(
+            Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth(libraryProgress(document))
+                .height(3.dp)
+                .background(accent),
+        )
+    }
+}
+
+@Composable
+private fun PdfLibraryCard(
+    document: LibraryDocument,
+    onOpen: () -> Unit,
+    onStatusChange: (LibraryReadingStatus) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val progress = libraryProgress(document)
+    ProxySurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animatedClick(onClick = onOpen, pressedScale = 0.985f),
+        role = ProxySurfaceRole.CARD,
+        strong = document.lastPage > 0,
+        interactive = false,
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            LibraryBookCover(
+                document = document,
+                modifier = Modifier
+                    .width(52.dp)
+                    .height(72.dp),
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = document.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "${document.readingStatus.libraryLabel()} · " +
+                        libraryPositionLabel(document),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(7.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(progress)
+                            .fillMaxHeight()
+                            .background(libraryAccent(document)),
+                    )
+                }
+            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "Действия с документом",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    LibraryReadingStatus.entries.forEach { status ->
+                        DropdownMenuItem(
+                            text = { Text(status.libraryLabel()) },
+                            onClick = {
+                                menuExpanded = false
+                                onStatusChange(status)
+                            },
+                            trailingIcon = {
+                                if (status == document.readingStatus) {
+                                    Icon(Icons.Default.Check, contentDescription = null)
+                                }
+                            },
+                        )
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Убрать из библиотеки",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onDelete()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyLibrarySearchState() {
+    ProxySurface(
+        modifier = Modifier.fillMaxWidth(),
+        role = ProxySurfaceRole.CARD,
+        interactive = false,
+    ) {
+        Column(
+            modifier = Modifier.padding(26.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text("На этой полке ничего не найдено", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Измените запрос или выберите другой статус",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
+private fun KnowledgeHubPreview() {
+    ProxySurface(
+        modifier = Modifier.fillMaxWidth(),
+        role = ProxySurfaceRole.CARD,
+        interactive = false,
+    ) {
+        Row(
+            modifier = Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            ProxyInsetSurface(
+                modifier = Modifier.size(50.dp),
+                role = ProxySurfaceRole.BUTTON,
+                selected = false,
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.Bookmarks,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text("Цитаты и книжные заметки", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Здесь будут собираться выделения и фрагменты PDF со ссылкой на страницу.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                "Скоро",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun libraryAccent(document: LibraryDocument): Color {
+    val palette = LocalStainPaletteColors.current
+    return when ((document.title.hashCode() and Int.MAX_VALUE) % 3) {
+        0 -> palette.primary
+        1 -> palette.secondary
+        else -> palette.tertiary
+    }
+}
+
+private fun libraryProgress(document: LibraryDocument): Float = if (document.pageCount > 0) {
+    ((document.lastPage + 1).toFloat() / document.pageCount).coerceIn(0f, 1f)
+} else {
+    0f
+}
+
+private fun libraryPositionLabel(document: LibraryDocument): String = if (document.pageCount > 0) {
+    "стр. ${document.lastPage + 1} из ${document.pageCount}"
+} else {
+    "ещё не открыт"
+}
+
+private fun LibraryReadingStatus.libraryLabel(): String = when (this) {
+    LibraryReadingStatus.READING -> "Читаю"
+    LibraryReadingStatus.WANT_TO_READ -> "Хочу прочитать"
+    LibraryReadingStatus.COMPLETED -> "Завершено"
+}
+
+private fun LibraryFilter.libraryLabel(): String = when (this) {
+    LibraryFilter.ALL -> "Все"
+    LibraryFilter.READING -> "Читаю"
+    LibraryFilter.WANT_TO_READ -> "Хочу прочитать"
+    LibraryFilter.COMPLETED -> "Завершено"
+}
+
+private fun pdfCountLabel(count: Int): String {
+    val mod100 = count % 100
+    val mod10 = count % 10
+    return when {
+        mod100 in 11..14 -> "PDF-документов"
+        mod10 == 1 -> "PDF-документ"
+        mod10 in 2..4 -> "PDF-документа"
+        else -> "PDF-документов"
     }
 }
 
