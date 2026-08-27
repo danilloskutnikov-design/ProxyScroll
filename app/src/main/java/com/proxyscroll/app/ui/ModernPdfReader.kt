@@ -22,9 +22,12 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -70,11 +73,11 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
-import androidx.compose.ui.graphics.ContentScale
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -112,6 +115,10 @@ private enum class PdfReadingProfile(val label: String) {
     CONTRAST("Контраст"),
 }
 
+/**
+ * Small LRU cache. Rendering deliberately happens outside the monitor so a slow
+ * prefetch cannot block the page that the user has just swiped to.
+ */
 private class ModernPdfBitmapCache(
     private val maxEntries: Int = 7,
 ) {
@@ -151,6 +158,7 @@ internal fun ModernPdfReaderScreen(
         }
     }
     val currentScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
+
     DisposableEffect(Unit) {
         onDispose { currentScrollQuietChanged(false) }
     }
@@ -250,8 +258,8 @@ private fun ModernPdfReaderReady(
 
     fun goToPage(page: Int) {
         markInteraction()
-        val target = page.coerceIn(0, pageCount - 1)
         resetZoom()
+        val target = page.coerceIn(0, pageCount - 1)
         scope.launch { pagerState.animateScrollToPage(target) }
     }
 
@@ -355,12 +363,14 @@ private fun ModernPdfReaderReady(
             )
         }
 
-        val progress = ((pagerState.currentPage + 1f) / pageCount).coerceIn(0f, 1f)
+        val readingProgress = (
+            (pagerState.currentPage + pagerState.currentPageOffsetFraction + 1f) / pageCount
+            ).coerceIn(0f, 1f)
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .zIndex(5f)
-                .fillMaxWidth(progress)
+                .fillMaxWidth(readingProgress)
                 .height(2.dp)
                 .background(MaterialTheme.colorScheme.primary),
         )
@@ -497,7 +507,10 @@ private fun ModernPdfReaderReady(
                             enabled = pagerState.currentPage > 0,
                             onClick = { goToPage(pagerState.currentPage - 1) },
                         ) {
-                            Icon(Icons.Default.NavigateBefore, contentDescription = "Предыдущая страница")
+                            Icon(
+                                Icons.Default.NavigateBefore,
+                                contentDescription = "Предыдущая страница",
+                            )
                         }
                         Text(
                             "Страница ${(if (isScrubbing) scrubPage else pagerState.currentPage.toFloat()).roundToInt() + 1}",
@@ -507,7 +520,10 @@ private fun ModernPdfReaderReady(
                             enabled = pagerState.currentPage < pageCount - 1,
                             onClick = { goToPage(pagerState.currentPage + 1) },
                         ) {
-                            Icon(Icons.Default.NavigateNext, contentDescription = "Следующая страница")
+                            Icon(
+                                Icons.Default.NavigateNext,
+                                contentDescription = "Следующая страница",
+                            )
                         }
                     }
                     Slider(
@@ -597,6 +613,7 @@ private fun ModernPdfReaderPage(
             }
         }
     }
+
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         when {
             render.error != null -> Column(
@@ -733,7 +750,7 @@ private fun ModernZoomablePdfPage(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .clipToBounds()
@@ -755,11 +772,7 @@ private fun ModernZoomablePdfPage(
                         }
                     },
                     onDoubleTap = { position ->
-                        if (scale > 1.05f) {
-                            animateZoom(1f)
-                        } else {
-                            animateZoom(2.25f, position)
-                        }
+                        if (scale > 1.05f) animateZoom(1f) else animateZoom(2.25f, position)
                     },
                 )
             }
@@ -776,7 +789,11 @@ private fun ModernZoomablePdfPage(
                             zoomAnimationJob?.cancel()
                             transformedThisGesture = true
                             transforming = true
-                            val zoomChange = if (pressedPointers >= 2) event.calculateZoom() else 1f
+                            val zoomChange = if (pressedPointers >= 2) {
+                                event.calculateZoom()
+                            } else {
+                                1f
+                            }
                             val panChange = event.calculatePan()
                             val newScale = (scale * zoomChange).coerceIn(1f, 4f)
                             val (maxX, maxY) = panBounds(newScale)
@@ -787,6 +804,7 @@ private fun ModernZoomablePdfPage(
                         }
                         pointersStillPressed = event.changes.any { it.pressed }
                     } while (pointersStillPressed)
+
                     if (transformedThisGesture && scale <= 1.02f) {
                         scale = 1f
                         offsetX = 0f
@@ -799,15 +817,25 @@ private fun ModernZoomablePdfPage(
             },
         contentAlignment = Alignment.Center,
     ) {
+        val imageAspect = image.width.toFloat() / image.height.toFloat().coerceAtLeast(1f)
+        val viewportAspect = maxWidth.value / maxHeight.value.coerceAtLeast(1f)
+        val pageModifier = if (imageAspect >= viewportAspect) {
+            Modifier
+                .fillMaxWidth(0.96f)
+                .aspectRatio(imageAspect)
+        } else {
+            Modifier
+                .fillMaxHeight(0.96f)
+                .aspectRatio(imageAspect)
+        }
+
         ProxySurface(
-            modifier = Modifier
-                .fillMaxSize(0.96f)
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = offsetX
-                    translationY = offsetY
-                },
+            modifier = pageModifier.graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationX = offsetX
+                translationY = offsetY
+            },
             role = ProxySurfaceRole.CARD,
             strong = true,
             interactive = false,
