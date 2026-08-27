@@ -3,6 +3,7 @@ package com.proxyscroll.app.data
 import android.content.SharedPreferences
 import com.proxyscroll.app.domain.DocumentLibraryRepository
 import com.proxyscroll.app.domain.LibraryDocument
+import com.proxyscroll.app.domain.LibraryReadingStatus
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -16,6 +17,16 @@ class PreferencesDocumentLibraryRepository(
             buildList {
                 repeat(array.length()) { index ->
                     val item = array.getJSONObject(index)
+                    val lastPage = item.optInt("lastPage").coerceAtLeast(0)
+                    val pageCount = item.optInt("pageCount").coerceAtLeast(0)
+                    val fallbackStatus = when {
+                        pageCount <= 0 -> LibraryReadingStatus.WANT_TO_READ
+                        lastPage >= pageCount - 1 -> LibraryReadingStatus.COMPLETED
+                        else -> LibraryReadingStatus.READING
+                    }
+                    val readingStatus = runCatching {
+                        LibraryReadingStatus.valueOf(item.optString("readingStatus"))
+                    }.getOrDefault(fallbackStatus)
                     add(
                         LibraryDocument(
                             id = item.getString("id"),
@@ -23,8 +34,9 @@ class PreferencesDocumentLibraryRepository(
                             uri = item.getString("uri"),
                             addedAt = item.optLong("addedAt"),
                             lastOpenedAt = item.optLong("lastOpenedAt", item.optLong("addedAt")),
-                            lastPage = item.optInt("lastPage").coerceAtLeast(0),
-                            pageCount = item.optInt("pageCount").coerceAtLeast(0),
+                            lastPage = lastPage,
+                            pageCount = pageCount,
+                            readingStatus = readingStatus,
                         ),
                     )
                 }
@@ -51,6 +63,7 @@ class PreferencesDocumentLibraryRepository(
                 put("lastOpenedAt", document.lastOpenedAt)
                 put("lastPage", document.lastPage)
                 put("pageCount", document.pageCount)
+                put("readingStatus", document.readingStatus.name)
             })
         }
         preferences.edit().putString(KEY_DOCUMENTS, array.toString()).apply()
