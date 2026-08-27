@@ -425,7 +425,7 @@ fun ProxyScrollApp(
                         }
                     } else if (destination == ProxyDestination.PDF_READER) {
                         openPdfDocument?.let { document ->
-                            PdfReaderScreen(
+                            ModernPdfReaderScreen(
                                 document = document,
                                 onBack = {
                                     pdfReaderOpen = false
