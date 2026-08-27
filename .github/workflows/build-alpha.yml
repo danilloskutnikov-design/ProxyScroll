@@ -41,10 +41,15 @@ jobs:
         run: gradle --no-daemon :app:assembleDebug :app:assembleSidecar
 
       - name: Prepare installers
+        shell: bash
         run: |
+          set -euo pipefail
+          app_version=$(sed -n 's/^[[:space:]]*versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -n 1)
+          test -n "$app_version"
+          echo "APP_VERSION=$app_version" >> "$GITHUB_ENV"
           mkdir -p installers
-          cp app/build/outputs/apk/debug/app-debug.apk installers/ProxyScroll-0.15.0-alpha28-update.apk
-          cp app/build/outputs/apk/sidecar/app-sidecar.apk installers/ProxyScroll-0.15.0-alpha28-sidecar.apk
+          cp app/build/outputs/apk/debug/app-debug.apk "installers/ProxyScroll-$app_version-update.apk"
+          cp app/build/outputs/apk/sidecar/app-sidecar.apk "installers/ProxyScroll-$app_version-sidecar.apk"
 
       - name: Apply stable Alpha signatures
         run: |
@@ -86,7 +91,7 @@ jobs:
       - name: Upload Alpha installers
         uses: actions/upload-artifact@v4
         with:
-          name: ProxyScroll-0.15.0-alpha28-installers
+          name: ProxyScroll-${{ env.APP_VERSION }}-installers
           path: installers
           if-no-files-found: error
           retention-days: 30
