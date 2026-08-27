@@ -25,6 +25,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -233,6 +234,7 @@ import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import com.proxyscroll.app.ui.theme.ProxyThemeBackground
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -3826,9 +3828,10 @@ private fun ZoomablePdfPage(
     onNextPage: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val scale = remember(page) { Animatable(1f) }
-    val offsetX = remember(page) { Animatable(0f) }
-    val offsetY = remember(page) { Animatable(0f) }
+    var scale by remember(page) { mutableFloatStateOf(1f) }
+    var offsetX by remember(page) { mutableFloatStateOf(0f) }
+    var offsetY by remember(page) { mutableFloatStateOf(0f) }
+    var zoomAnimationJob by remember(page) { mutableStateOf<Job?>(null) }
     val scrollState = rememberScrollState()
     var viewportWidth by remember(page) { mutableIntStateOf(1) }
     var viewportHeight by remember(page) { mutableIntStateOf(1) }
@@ -3856,24 +3859,19 @@ private fun ZoomablePdfPage(
         } else {
             ((viewportHeight / 2f - tap.y) * (safeScale - 1f)).coerceIn(-maxY, maxY)
         }
-        scope.launch {
-            launch {
-                scale.animateTo(
-                    safeScale,
-                    spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow),
-                )
-            }
-            launch {
-                offsetX.animateTo(
-                    targetX,
-                    spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
-                )
-            }
-            launch {
-                offsetY.animateTo(
-                    targetY,
-                    spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
-                )
+        zoomAnimationJob?.cancel()
+        val startScale = scale
+        val startX = offsetX
+        val startY = offsetY
+        zoomAnimationJob = scope.launch {
+            animate(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow),
+            ) { progress, _ ->
+                scale = startScale + (safeScale - startScale) * progress
+                offsetX = startX + (targetX - startX) * progress
+                offsetY = startY + (targetY - startY) * progress
             }
         }
     }
@@ -3881,8 +3879,8 @@ private fun ZoomablePdfPage(
     LaunchedEffect(resetZoomToken) {
         if (resetZoomToken > 0) animateZoom(1f)
     }
-    LaunchedEffect(scale.value, isCurrent) {
-        if (isCurrent) onScaleChanged(scale.value)
+    LaunchedEffect(scale, isCurrent) {
+        if (isCurrent) onScaleChanged(scale)
     }
     LaunchedEffect(scrollState, isCurrent) {
         snapshotFlow { scrollState.isScrollInProgress }
@@ -3911,7 +3909,7 @@ private fun ZoomablePdfPage(
             .pointerInput(page) {
                 detectTapGestures(
                     onTap = { position ->
-                        if (scale.value <= 1.01f) {
+                        if (scale <= 1.01f) {
                             when {
                                 position.x < viewportWidth * 0.24f -> onPreviousPage()
                                 position.x > viewportWidth * 0.76f -> onNextPage()
@@ -3922,7 +3920,7 @@ private fun ZoomablePdfPage(
                         }
                     },
                     onDoubleTap = { position ->
-                        if (scale.value > 1.05f) {
+                        if (scale > 1.05f) {
                             animateZoom(1f)
                         } else {
                             animateZoom(2.25f, position)
@@ -3938,8 +3936,9 @@ private fun ZoomablePdfPage(
                     do {
                         val event = awaitPointerEvent()
                         val pressedPointers = event.changes.count { it.pressed }
-                        val canTransform = pressedPointers >= 2 || scale.value > 1.01f
+                        val canTransform = pressedPointers >= 2 || scale > 1.01f
                         if (canTransform) {
+                            zoomAnimationJob?.cancel()
                             transformedThisGesture = true
                             transforming = true
                             val zoomChange = if (pressedPointers >= 2) {
@@ -3948,19 +3947,19 @@ private fun ZoomablePdfPage(
                                 1f
                             }
                             val panChange = event.calculatePan()
-                            val newScale = (scale.value * zoomChange).coerceIn(1f, 4f)
+                            val newScale = (scale * zoomChange).coerceIn(1f, 4f)
                             val (maxX, maxY) = panBounds(newScale)
-                            scale.snapTo(newScale)
-                            offsetX.snapTo((offsetX.value + panChange.x).coerceIn(-maxX, maxX))
-                            offsetY.snapTo((offsetY.value + panChange.y).coerceIn(-maxY, maxY))
+                            scale = newScale
+                            offsetX = (offsetX + panChange.x).coerceIn(-maxX, maxX)
+                            offsetY = (offsetY + panChange.y).coerceIn(-maxY, maxY)
                             event.changes.forEach { it.consume() }
                         }
                         pointersStillPressed = event.changes.any { it.pressed }
                     } while (pointersStillPressed)
-                    if (transformedThisGesture && scale.value <= 1.02f) {
-                        scale.snapTo(1f)
-                        offsetX.snapTo(0f)
-                        offsetY.snapTo(0f)
+                    if (transformedThisGesture && scale <= 1.02f) {
+                        scale = 1f
+                        offsetX = 0f
+                        offsetY = 0f
                     }
                     transforming = false
                 }
@@ -3971,7 +3970,7 @@ private fun ZoomablePdfPage(
                 .fillMaxSize()
                 .verticalScroll(
                     state = scrollState,
-                    enabled = scale.value <= 1.01f,
+                    enabled = scale <= 1.01f,
                 )
                 .padding(horizontal = 8.dp, vertical = 10.dp),
         ) {
@@ -3979,10 +3978,10 @@ private fun ZoomablePdfPage(
                 modifier = Modifier
                     .fillMaxWidth()
                     .graphicsLayer {
-                        scaleX = scale.value
-                        scaleY = scale.value
-                        translationX = offsetX.value
-                        translationY = offsetY.value
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offsetX
+                        translationY = offsetY
                     },
                 role = ProxySurfaceRole.CARD,
                 strong = true,
