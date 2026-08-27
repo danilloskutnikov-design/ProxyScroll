@@ -25,6 +25,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -39,6 +40,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -60,7 +62,10 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -131,6 +136,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -142,6 +148,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -227,12 +234,15 @@ import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import com.proxyscroll.app.ui.theme.ProxyThemeBackground
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
+import java.util.LinkedHashMap
+import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -3312,12 +3322,45 @@ private fun pdfCountLabel(count: Int): String {
     }
 }
 
-private data class PdfPageRender(
-    val image: androidx.compose.ui.graphics.ImageBitmap? = null,
+private data class PdfDocumentInfo(
     val pageCount: Int = 0,
-    val actualPage: Int = 0,
     val error: String? = null,
 )
+
+private data class PdfPageRender(
+    val image: androidx.compose.ui.graphics.ImageBitmap? = null,
+    val error: String? = null,
+)
+
+private class PdfBitmapCache(
+    private val maxEntries: Int = 3,
+) {
+    private val pages = object : LinkedHashMap<Int, androidx.compose.ui.graphics.ImageBitmap>(
+        maxEntries,
+        0.75f,
+        true,
+    ) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<Int, androidx.compose.ui.graphics.ImageBitmap>?,
+        ): Boolean = size > maxEntries
+    }
+
+    @Synchronized
+    fun get(page: Int): androidx.compose.ui.graphics.ImageBitmap? = pages[page]
+
+    @Synchronized
+    fun getOrRender(
+        page: Int,
+        render: () -> androidx.compose.ui.graphics.ImageBitmap,
+    ): androidx.compose.ui.graphics.ImageBitmap = pages[page] ?: render().also {
+        pages[page] = it
+    }
+
+    @Synchronized
+    fun clear() {
+        pages.clear()
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -3328,79 +3371,220 @@ private fun PdfReaderScreen(
     onScrollQuietChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
-    var pageIndex by remember(document.id) {
-        mutableIntStateOf(document.lastPage.coerceAtLeast(0))
-    }
-    val scrollState = rememberScrollState()
-    val render by produceState(
-        initialValue = PdfPageRender(),
+    val documentInfo by produceState(
+        initialValue = PdfDocumentInfo(),
         key1 = document.uri,
-        key2 = pageIndex,
     ) {
         value = withContext(Dispatchers.IO) {
-            renderPdfPage(context, Uri.parse(document.uri), pageIndex)
+            readPdfDocumentInfo(context, Uri.parse(document.uri))
         }
     }
     val currentScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
-    LaunchedEffect(scrollState) {
-        snapshotFlow { scrollState.isScrollInProgress }
-            .distinctUntilChanged()
-            .collectLatest { scrolling ->
-                currentScrollQuietChanged(scrolling)
-                if (!scrolling) delay(160)
-            }
-    }
-    LaunchedEffect(render.pageCount, render.actualPage) {
-        if (render.pageCount > 0) {
-            if (pageIndex != render.actualPage) pageIndex = render.actualPage
-            onProgressChanged(render.actualPage, render.pageCount)
-            scrollState.scrollTo(0)
-        }
-    }
     DisposableEffect(Unit) {
         onDispose { currentScrollQuietChanged(false) }
     }
     BackHandler(onBack = onBack)
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            document.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (render.pageCount > 0) {
-                            Text(
-                                "${render.actualPage + 1} / ${render.pageCount}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        when {
+            documentInfo.error != null -> PdfReaderErrorState(
+                message = documentInfo.error.orEmpty(),
+                onBack = onBack,
+            )
+            documentInfo.pageCount <= 0 -> CircularProgressIndicator()
+            else -> PdfReaderReady(
+                document = document,
+                pageCount = documentInfo.pageCount,
+                onBack = onBack,
+                onProgressChanged = onProgressChanged,
+                onScrollQuietChanged = onScrollQuietChanged,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PdfReaderErrorState(
+    message: String,
+    onBack: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(8.dp),
+        ) {
+            Icon(Icons.Default.ArrowBack, contentDescription = "В библиотеку")
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                Icons.Default.Description,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.error,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text("Не удалось открыть PDF", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PdfReaderReady(
+    document: LibraryDocument,
+    pageCount: Int,
+    onBack: () -> Unit,
+    onProgressChanged: (Int, Int) -> Unit,
+    onScrollQuietChanged: (Boolean) -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val cache = remember(document.uri) { PdfBitmapCache() }
+    val initialPage = document.lastPage.coerceIn(0, pageCount - 1)
+    val pagerState = rememberPagerState(initialPage = initialPage) { pageCount }
+    var controlsVisible by remember(document.id) { mutableStateOf(true) }
+    var gestureHintVisible by remember(document.id) { mutableStateOf(true) }
+    var resetZoomToken by remember(document.id) { mutableIntStateOf(0) }
+    var currentScale by remember(document.id) { mutableFloatStateOf(1f) }
+    var pagerInteractionActive by remember { mutableStateOf(false) }
+    var pageInteractionActive by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
+    var scrubPage by remember(document.id) { mutableFloatStateOf(initialPage.toFloat()) }
+    var isScrubbing by remember { mutableStateOf(false) }
+    val currentScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
+
+    fun resetZoom() {
+        resetZoomToken += 1
+        currentScale = 1f
+    }
+
+    fun goToPage(page: Int) {
+        val target = page.coerceIn(0, pageCount - 1)
+        resetZoom()
+        scope.launch {
+            pagerState.animateScrollToPage(target)
+        }
+    }
+
+    LaunchedEffect(document.id) {
+        delay(4200)
+        gestureHintVisible = false
+    }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collectLatest { moving -> pagerInteractionActive = moving }
+    }
+    LaunchedEffect(pagerInteractionActive, pageInteractionActive) {
+        currentScrollQuietChanged(pagerInteractionActive || pageInteractionActive)
+    }
+    LaunchedEffect(pagerState, pageCount) {
+        snapshotFlow { pagerState.settledPage }
+            .distinctUntilChanged()
+            .collectLatest { page ->
+                resetZoom()
+                if (!isScrubbing) scrubPage = page.toFloat()
+                onProgressChanged(page, pageCount)
+                withContext(Dispatchers.IO) {
+                    listOf(page - 1, page + 1)
+                        .filter { it in 0 until pageCount }
+                        .forEach { adjacentPage ->
+                            renderPdfPage(
+                                context = context,
+                                uri = Uri.parse(document.uri),
+                                requestedPage = adjacentPage,
+                                cache = cache,
                             )
                         }
+                }
+            }
+    }
+    LaunchedEffect(pagerState.currentPage, isScrubbing) {
+        if (!isScrubbing) scrubPage = pagerState.currentPage.toFloat()
+    }
+    DisposableEffect(cache) {
+        onDispose {
+            cache.clear()
+            currentScrollQuietChanged(false)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds(),
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            userScrollEnabled = currentScale <= 1.01f,
+            pageSpacing = 12.dp,
+        ) { page ->
+            val pageOffset = (
+                (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                ).absoluteValue.coerceIn(0f, 1f)
+            PdfReaderPage(
+                document = document,
+                page = page,
+                cache = cache,
+                isCurrent = page == pagerState.currentPage,
+                resetZoomToken = resetZoomToken,
+                onScaleChanged = { scale ->
+                    if (page == pagerState.currentPage) currentScale = scale
+                },
+                onInteractionChanged = { active ->
+                    if (page == pagerState.currentPage) pageInteractionActive = active
+                },
+                onCenterTap = {
+                    gestureHintVisible = false
+                    controlsVisible = !controlsVisible
+                },
+                onPreviousPage = {
+                    if (pagerState.currentPage > 0) goToPage(pagerState.currentPage - 1)
+                },
+                onNextPage = {
+                    if (pagerState.currentPage < pageCount - 1) {
+                        goToPage(pagerState.currentPage + 1)
                     }
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "В библиотеку")
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-                ),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = 1f - pageOffset * 0.16f
+                        val pageScale = 1f - pageOffset * 0.018f
+                        scaleX = pageScale
+                        scaleY = pageScale
+                    },
             )
-        },
-        bottomBar = {
+        }
+
+        AnimatedVisibility(
+            visible = controlsVisible,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(3f),
+            enter = fadeIn(tween(180)) + slideInVertically(tween(260)) { -it },
+            exit = fadeOut(tween(150)) + slideOutVertically(tween(220)) { -it },
+        ) {
             ProxySurface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .statusBarsPadding()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 role = ProxySurfaceRole.OVERLAY,
                 strong = true,
                 interactive = false,
@@ -3409,89 +3593,409 @@ private fun PdfReaderScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(5.dp),
+                        .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    IconButton(
-                        enabled = render.pageCount > 0 && render.actualPage > 0,
-                        onClick = { pageIndex = (render.actualPage - 1).coerceAtLeast(0) },
-                    ) {
-                        Icon(Icons.Default.NavigateBefore, contentDescription = "Предыдущая страница")
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "В библиотеку")
                     }
-                    Text(
-                        text = if (render.pageCount > 0) {
-                            "Страница ${render.actualPage + 1}"
-                        } else {
-                            "Открываю PDF…"
-                        },
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                    IconButton(
-                        enabled = render.pageCount > 0 && render.actualPage < render.pageCount - 1,
-                        onClick = {
-                            pageIndex = (render.actualPage + 1).coerceAtMost(render.pageCount - 1)
-                        },
-                    ) {
-                        Icon(Icons.Default.NavigateNext, contentDescription = "Следующая страница")
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            document.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            "${pagerState.currentPage + 1} / $pageCount · " +
+                                "${(currentScale * 100).roundToInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                }
-            }
-        },
-    ) { contentPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(contentPadding),
-            contentAlignment = Alignment.Center,
-        ) {
-            when {
-                render.error != null -> Column(
-                    modifier = Modifier.padding(28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        Icons.Default.Description,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text("Не удалось открыть PDF", style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        render.error.orEmpty(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                render.image == null -> CircularProgressIndicator()
-                else -> {
-                    val image = render.image ?: return@Box
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(scrollState)
-                            .padding(horizontal = 8.dp, vertical = 10.dp),
+                    IconButton(
+                        enabled = currentScale > 1.01f,
+                        onClick = ::resetZoom,
                     ) {
-                        ProxySurface(
-                            modifier = Modifier.fillMaxWidth(),
-                            role = ProxySurfaceRole.CARD,
-                            strong = true,
-                            interactive = false,
-                            deformContent = false,
+                        Icon(Icons.Default.FormatSize, contentDescription = "По ширине страницы")
+                    }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Навигация по документу")
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
                         ) {
-                            Image(
-                                bitmap = image,
-                                contentDescription = "Страница ${render.actualPage + 1}",
-                                contentScale = ContentScale.FillWidth,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(image.width.toFloat() / image.height.toFloat()),
+                            DropdownMenuItem(
+                                text = { Text("Первая страница") },
+                                onClick = {
+                                    menuExpanded = false
+                                    goToPage(0)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Последняя страница") },
+                                onClick = {
+                                    menuExpanded = false
+                                    goToPage(pageCount - 1)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Вернуть масштаб 100%") },
+                                onClick = {
+                                    menuExpanded = false
+                                    resetZoom()
+                                },
                             )
                         }
                     }
                 }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = controlsVisible,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(3f),
+            enter = fadeIn(tween(180)) + slideInVertically(tween(260)) { it },
+            exit = fadeOut(tween(150)) + slideOutVertically(tween(220)) { it },
+        ) {
+            ProxySurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                role = ProxySurfaceRole.OVERLAY,
+                strong = true,
+                interactive = false,
+                deformContent = false,
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        IconButton(
+                            enabled = pagerState.currentPage > 0,
+                            onClick = { goToPage(pagerState.currentPage - 1) },
+                        ) {
+                            Icon(
+                                Icons.Default.NavigateBefore,
+                                contentDescription = "Предыдущая страница",
+                            )
+                        }
+                        Text(
+                            "Страница ${(if (isScrubbing) scrubPage else pagerState.currentPage.toFloat()).roundToInt() + 1}",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        IconButton(
+                            enabled = pagerState.currentPage < pageCount - 1,
+                            onClick = { goToPage(pagerState.currentPage + 1) },
+                        ) {
+                            Icon(
+                                Icons.Default.NavigateNext,
+                                contentDescription = "Следующая страница",
+                            )
+                        }
+                    }
+                    Slider(
+                        value = if (pageCount > 1) scrubPage else 0f,
+                        onValueChange = { value ->
+                            isScrubbing = true
+                            scrubPage = value.roundToInt().toFloat()
+                        },
+                        onValueChangeFinished = {
+                            val target = scrubPage.roundToInt()
+                            isScrubbing = false
+                            goToPage(target)
+                        },
+                        valueRange = 0f..(pageCount - 1).coerceAtLeast(1).toFloat(),
+                        enabled = pageCount > 1,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = gestureHintVisible,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = if (controlsVisible) 132.dp else 22.dp)
+                .zIndex(4f),
+            enter = fadeIn(tween(220)),
+            exit = fadeOut(tween(220)),
+        ) {
+            ProxySurface(
+                role = ProxySurfaceRole.OVERLAY,
+                strong = true,
+                interactive = false,
+                deformContent = false,
+            ) {
+                Text(
+                    "Свайп — страница · щипок — масштаб · двойной тап",
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PdfReaderPage(
+    document: LibraryDocument,
+    page: Int,
+    cache: PdfBitmapCache,
+    isCurrent: Boolean,
+    resetZoomToken: Int,
+    onScaleChanged: (Float) -> Unit,
+    onInteractionChanged: (Boolean) -> Unit,
+    onCenterTap: () -> Unit,
+    onPreviousPage: () -> Unit,
+    onNextPage: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val cachedImage = remember(document.uri, page) { cache.get(page) }
+    val render by produceState(
+        initialValue = PdfPageRender(image = cachedImage),
+        key1 = document.uri,
+        key2 = page,
+    ) {
+        if (value.image == null) {
+            value = withContext(Dispatchers.IO) {
+                renderPdfPage(
+                    context = context,
+                    uri = Uri.parse(document.uri),
+                    requestedPage = page,
+                    cache = cache,
+                )
+            }
+        }
+    }
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        when {
+            render.error != null -> Column(
+                modifier = Modifier.padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    Icons.Default.Description,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    render.error.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            render.image == null -> CircularProgressIndicator()
+            else -> ZoomablePdfPage(
+                image = render.image ?: return@Box,
+                page = page,
+                isCurrent = isCurrent,
+                resetZoomToken = resetZoomToken,
+                onScaleChanged = onScaleChanged,
+                onInteractionChanged = onInteractionChanged,
+                onCenterTap = onCenterTap,
+                onPreviousPage = onPreviousPage,
+                onNextPage = onNextPage,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ZoomablePdfPage(
+    image: androidx.compose.ui.graphics.ImageBitmap,
+    page: Int,
+    isCurrent: Boolean,
+    resetZoomToken: Int,
+    onScaleChanged: (Float) -> Unit,
+    onInteractionChanged: (Boolean) -> Unit,
+    onCenterTap: () -> Unit,
+    onPreviousPage: () -> Unit,
+    onNextPage: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var scale by remember(page) { mutableFloatStateOf(1f) }
+    var offsetX by remember(page) { mutableFloatStateOf(0f) }
+    var offsetY by remember(page) { mutableFloatStateOf(0f) }
+    var zoomAnimationJob by remember(page) { mutableStateOf<Job?>(null) }
+    val scrollState = rememberScrollState()
+    var viewportWidth by remember(page) { mutableIntStateOf(1) }
+    var viewportHeight by remember(page) { mutableIntStateOf(1) }
+    var transforming by remember(page) { mutableStateOf(false) }
+    var verticallyScrolling by remember(page) { mutableStateOf(false) }
+
+    fun panBounds(targetScale: Float): Pair<Float, Float> {
+        val availableWidth = viewportWidth.toFloat() * 0.96f
+        val imageHeight = availableWidth * image.height / image.width
+        val maxX = ((availableWidth * targetScale - viewportWidth) / 2f).coerceAtLeast(0f)
+        val maxY = ((imageHeight * targetScale - viewportHeight) / 2f).coerceAtLeast(0f)
+        return maxX to maxY
+    }
+
+    fun animateZoom(targetScale: Float, tap: Offset? = null) {
+        val safeScale = targetScale.coerceIn(1f, 4f)
+        val (maxX, maxY) = panBounds(safeScale)
+        val targetX = if (safeScale <= 1.01f || tap == null) {
+            0f
+        } else {
+            ((viewportWidth / 2f - tap.x) * (safeScale - 1f)).coerceIn(-maxX, maxX)
+        }
+        val targetY = if (safeScale <= 1.01f || tap == null) {
+            0f
+        } else {
+            ((viewportHeight / 2f - tap.y) * (safeScale - 1f)).coerceIn(-maxY, maxY)
+        }
+        zoomAnimationJob?.cancel()
+        val startScale = scale
+        val startX = offsetX
+        val startY = offsetY
+        zoomAnimationJob = scope.launch {
+            animate(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow),
+            ) { progress, _ ->
+                scale = startScale + (safeScale - startScale) * progress
+                offsetX = startX + (targetX - startX) * progress
+                offsetY = startY + (targetY - startY) * progress
+            }
+        }
+    }
+
+    LaunchedEffect(resetZoomToken) {
+        if (resetZoomToken > 0) animateZoom(1f)
+    }
+    LaunchedEffect(scale, isCurrent) {
+        if (isCurrent) onScaleChanged(scale)
+    }
+    LaunchedEffect(scrollState, isCurrent) {
+        snapshotFlow { scrollState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collectLatest { scrolling ->
+                verticallyScrolling = scrolling
+            }
+    }
+    LaunchedEffect(transforming, verticallyScrolling, isCurrent) {
+        onInteractionChanged(isCurrent && (transforming || verticallyScrolling))
+    }
+    DisposableEffect(isCurrent) {
+        onDispose {
+            if (isCurrent) onInteractionChanged(false)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .onGloballyPositioned { coordinates ->
+                viewportWidth = coordinates.size.width.coerceAtLeast(1)
+                viewportHeight = coordinates.size.height.coerceAtLeast(1)
+            }
+            .pointerInput(page) {
+                detectTapGestures(
+                    onTap = { position ->
+                        if (scale <= 1.01f) {
+                            when {
+                                position.x < viewportWidth * 0.24f -> onPreviousPage()
+                                position.x > viewportWidth * 0.76f -> onNextPage()
+                                else -> onCenterTap()
+                            }
+                        } else {
+                            onCenterTap()
+                        }
+                    },
+                    onDoubleTap = { position ->
+                        if (scale > 1.05f) {
+                            animateZoom(1f)
+                        } else {
+                            animateZoom(2.25f, position)
+                        }
+                    },
+                )
+            }
+            .pointerInput(page) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    var transformedThisGesture = false
+                    var pointersStillPressed: Boolean
+                    do {
+                        val event = awaitPointerEvent()
+                        val pressedPointers = event.changes.count { it.pressed }
+                        val canTransform = pressedPointers >= 2 || scale > 1.01f
+                        if (canTransform) {
+                            zoomAnimationJob?.cancel()
+                            transformedThisGesture = true
+                            transforming = true
+                            val zoomChange = if (pressedPointers >= 2) {
+                                event.calculateZoom()
+                            } else {
+                                1f
+                            }
+                            val panChange = event.calculatePan()
+                            val newScale = (scale * zoomChange).coerceIn(1f, 4f)
+                            val (maxX, maxY) = panBounds(newScale)
+                            scale = newScale
+                            offsetX = (offsetX + panChange.x).coerceIn(-maxX, maxX)
+                            offsetY = (offsetY + panChange.y).coerceIn(-maxY, maxY)
+                            event.changes.forEach { it.consume() }
+                        }
+                        pointersStillPressed = event.changes.any { it.pressed }
+                    } while (pointersStillPressed)
+                    if (transformedThisGesture && scale <= 1.02f) {
+                        scale = 1f
+                        offsetX = 0f
+                        offsetY = 0f
+                    }
+                    transforming = false
+                }
+            },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(
+                    state = scrollState,
+                    enabled = scale <= 1.01f,
+                )
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+        ) {
+            ProxySurface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offsetX
+                        translationY = offsetY
+                    },
+                role = ProxySurfaceRole.CARD,
+                strong = true,
+                interactive = false,
+                deformContent = false,
+            ) {
+                Image(
+                    bitmap = image,
+                    contentDescription = "Страница ${page + 1}",
+                    contentScale = ContentScale.FillWidth,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(image.width.toFloat() / image.height.toFloat()),
+                )
             }
         }
     }
@@ -3512,35 +4016,54 @@ private fun pdfDisplayName(context: android.content.Context, uri: Uri): String {
     return queried?.removeSuffix(".pdf")?.takeIf { it.isNotBlank() } ?: "PDF-документ"
 }
 
+private fun readPdfDocumentInfo(
+    context: android.content.Context,
+    uri: Uri,
+): PdfDocumentInfo = runCatching {
+    val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
+        ?: error("Файл больше недоступен")
+    descriptor.use { file ->
+        PdfRenderer(file).use { renderer ->
+            if (renderer.pageCount <= 0) error("В документе нет страниц")
+            PdfDocumentInfo(pageCount = renderer.pageCount)
+        }
+    }
+}.getOrElse { error ->
+    PdfDocumentInfo(error = error.message ?: "Неизвестная ошибка чтения")
+}
+
 private fun renderPdfPage(
     context: android.content.Context,
     uri: Uri,
     requestedPage: Int,
+    cache: PdfBitmapCache,
 ): PdfPageRender = runCatching {
+    cache.get(requestedPage)?.let { cached ->
+        return@runCatching PdfPageRender(image = cached)
+    }
     val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
         ?: error("Файл больше недоступен")
     descriptor.use { file ->
         PdfRenderer(file).use { renderer ->
             if (renderer.pageCount <= 0) error("В документе нет страниц")
             val actualPage = requestedPage.coerceIn(0, renderer.pageCount - 1)
-            renderer.openPage(actualPage).use { page ->
-                val targetWidth = 1400
-                val targetHeight = (targetWidth.toFloat() * page.height / page.width)
-                    .roundToInt()
-                    .coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(
-                    targetWidth,
-                    targetHeight,
-                    Bitmap.Config.ARGB_8888,
-                )
-                bitmap.eraseColor(android.graphics.Color.WHITE)
-                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                PdfPageRender(
-                    image = bitmap.asImageBitmap(),
-                    pageCount = renderer.pageCount,
-                    actualPage = actualPage,
-                )
+            val image = cache.getOrRender(actualPage) {
+                renderer.openPage(actualPage).use { page ->
+                    val targetWidth = 1600
+                    val targetHeight = (targetWidth.toFloat() * page.height / page.width)
+                        .roundToInt()
+                        .coerceAtLeast(1)
+                    val bitmap = Bitmap.createBitmap(
+                        targetWidth,
+                        targetHeight,
+                        Bitmap.Config.ARGB_8888,
+                    )
+                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    bitmap.asImageBitmap()
+                }
             }
+            PdfPageRender(image = image)
         }
     }
 }.getOrElse { error ->
