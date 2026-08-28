@@ -19,14 +19,12 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
- * OCR-free PDF layout modes. Smart Crop removes dead paper margins while preserving
- * page geometry. Smart Reflow additionally turns detected columns/spreads into a
- * phone-width sequence.
+ * Reader layout is intentionally small: Original or Smart Resizer.
+ * Smart Resizer trims dead page margins and also splits likely scanned book spreads.
  */
 internal enum class PdfLayoutMode(val label: String) {
     ORIGINAL("Оригинал"),
     SMART_CROP("Smart Resizer"),
-    REFLOW("Smart Reflow"),
 }
 
 internal data class NormalizedPdfRect(
@@ -41,8 +39,6 @@ internal data class NormalizedPdfRect(
 
 internal enum class PdfRegionRole {
     FULL_WIDTH,
-    LEFT_COLUMN,
-    RIGHT_COLUMN,
     LEFT_PAGE,
     RIGHT_PAGE,
 }
@@ -54,9 +50,7 @@ internal data class PdfPageRegion(
 
 internal data class PdfPageLayoutAnalysis(
     val contentBounds: NormalizedPdfRect,
-    val readingRegions: List<PdfPageRegion>,
     val spreadRegions: List<PdfPageRegion>,
-    val columnCount: Int,
     val spreadDetected: Boolean,
     val confidence: Float,
 )
@@ -69,11 +63,6 @@ internal data class SmartPdfRegionImage(
         get() = image.width.toFloat() / image.height.toFloat().coerceAtLeast(1f)
 }
 
-/**
- * Atmosphere is deliberately separate from the page image. A uniform paper edge
- * can fill the whole display with an exact color (white stays truly white). When
- * the edge is photographic/colored, a tiny blurred copy is used instead.
- */
 internal data class PdfPageAtmosphere(
     val edgeColorArgb: Int = Color.WHITE,
     val edgeUniformity: Float = 1f,
@@ -88,9 +77,8 @@ internal data class SmartPdfPageRender(
     val error: String? = null,
 )
 
-/** Keeps a handful of rendered pages around both paged and continuous readers. */
 internal class SmartPdfReflowCache(
-    private val maxEntries: Int = 6,
+    private val maxEntries: Int = 8,
 ) {
     private val pages = object : LinkedHashMap<String, SmartPdfPageRender>(maxEntries, 0.75f, true) {
         override fun removeEldestEntry(
@@ -148,48 +136,36 @@ internal fun renderSmartPdfPage(
                     val source = renderSourceBitmap(pdfPage)
                     val atmosphere = analyzePageAtmosphere(source)
                     val analysis = analyzePdfPageBitmap(source)
-                    val chosenRegions = when (mode) {
+                    val regions = when (mode) {
                         PdfLayoutMode.ORIGINAL -> listOf(
                             PdfPageRegion(
                                 bounds = NormalizedPdfRect(0f, 0f, 1f, 1f),
                                 role = PdfRegionRole.FULL_WIDTH,
                             ),
                         )
-
                         PdfLayoutMode.SMART_CROP -> {
-                            if (analysis.spreadRegions.isNotEmpty()) {
-                                analysis.spreadRegions
-                            } else {
-                                listOf(
-                                    PdfPageRegion(
-                                        analysis.contentBounds,
-                                        PdfRegionRole.FULL_WIDTH,
-                                    ),
-                                )
+                            analysis.spreadRegions.ifEmpty {
+                                listOf(PdfPageRegion(analysis.contentBounds, PdfRegionRole.FULL_WIDTH))
                             }
                         }
-
-                        PdfLayoutMode.REFLOW -> analysis.readingRegions
-                    }
-
-                    val regionImages = chosenRegions.map { region ->
-                        val rect = region.bounds.toPixelRect(source.width, source.height)
-                        val cropped = Bitmap.createBitmap(
-                            source,
-                            rect.left,
-                            rect.top,
-                            rect.width,
-                            rect.height,
-                        )
-                        SmartPdfRegionImage(
-                            image = cropped.asImageBitmap(),
-                            role = region.role,
-                        )
                     }
 
                     SmartPdfPageRender(
-                        regions = regionImages,
-                        analysis = analysis.copy(readingRegions = chosenRegions),
+                        regions = regions.map { region ->
+                            val rect = region.bounds.toPixelRect(source.width, source.height)
+                            val cropped = Bitmap.createBitmap(
+                                source,
+                                rect.left,
+                                rect.top,
+                                rect.width,
+                                rect.height,
+                            )
+                            SmartPdfRegionImage(
+                                image = cropped.asImageBitmap(),
+                                role = region.role,
+                            )
+                        },
+                        analysis = analysis,
                         atmosphere = atmosphere,
                     )
                 }
@@ -229,7 +205,6 @@ private fun analyzePageAtmosphere(source: Bitmap): PdfPageAtmosphere {
     )
 }
 
-/** Samples a thin band, not one fragile outer pixel row. */
 private fun samplePageEdge(source: Bitmap): EdgeStatistics {
     val width = source.width.coerceAtLeast(1)
     val height = source.height.coerceAtLeast(1)
@@ -368,13 +343,13 @@ private data class MaskAnalysis(
     val colInk: IntArray,
 )
 
-/**
- * Cheap luminance geometry analysis. The strict spread detector intentionally runs
- * before the looser two-column detector so scanned book spreads become two virtual
- * pages instead of one tiny landscape page.
- */
+private data class SplitResult(
+    val regions: List<PdfPageRegion> = emptyList(),
+    val confidence: Float = 0f,
+)
+
 private fun analyzePdfPageBitmap(source: Bitmap): PdfPageLayoutAnalysis {
-    val analysisWidth = source.width.coerceAtMost(340).coerceAtLeast(1)
+    val analysisWidth = source.width.coerceAtMost(360).coerceAtLeast(1)
     val analysisHeight = (
         source.height.toFloat() * analysisWidth / source.width.coerceAtLeast(1)
         ).roundToInt().coerceAtLeast(1)
@@ -386,30 +361,13 @@ private fun analyzePdfPageBitmap(source: Bitmap): PdfPageLayoutAnalysis {
 
     val mask = buildForegroundMask(sample)
     val content = findContentBounds(mask)
-    val spread = detectSpread(mask, content, source.width.toFloat() / source.height.coerceAtLeast(1))
-    if (spread.regions.isNotEmpty()) {
-        return PdfPageLayoutAnalysis(
-            contentBounds = content,
-            readingRegions = spread.regions,
-            spreadRegions = spread.regions,
-            columnCount = 2,
-            spreadDetected = true,
-            confidence = spread.confidence,
-        )
-    }
-
-    val columns = detectColumns(mask, content)
+    val sourceAspect = source.width.toFloat() / source.height.coerceAtLeast(1)
+    val split = detectSpread(mask, content, sourceAspect)
     return PdfPageLayoutAnalysis(
         contentBounds = content,
-        readingRegions = if (columns.regions.isNotEmpty()) {
-            columns.regions
-        } else {
-            listOf(PdfPageRegion(content, PdfRegionRole.FULL_WIDTH))
-        },
-        spreadRegions = emptyList(),
-        columnCount = if (columns.regions.isNotEmpty()) 2 else 1,
-        spreadDetected = false,
-        confidence = columns.confidence,
+        spreadRegions = split.regions,
+        spreadDetected = split.regions.isNotEmpty(),
+        confidence = split.confidence,
     )
 }
 
@@ -448,7 +406,7 @@ private fun buildForegroundMask(sample: Bitmap): MaskAnalysis {
         val base = y * width
         for (x in 0 until width) {
             val lum = luminance(pixels[base + x])
-            val isInk = abs(lum - background) >= 28
+            val isInk = abs(lum - background) >= 25
             if (isInk) {
                 foreground[base + x] = true
                 rowInk[y] += 1
@@ -460,8 +418,8 @@ private fun buildForegroundMask(sample: Bitmap): MaskAnalysis {
 }
 
 private fun findContentBounds(mask: MaskAnalysis): NormalizedPdfRect {
-    val rowThreshold = max(1, (mask.width * 0.006f).roundToInt())
-    val colThreshold = max(1, (mask.height * 0.006f).roundToInt())
+    val rowThreshold = max(1, (mask.width * 0.005f).roundToInt())
+    val colThreshold = max(1, (mask.height * 0.005f).roundToInt())
     val firstRow = mask.rowInk.indexOfFirst { it >= rowThreshold }
     val lastRow = mask.rowInk.indexOfLast { it >= rowThreshold }
     val firstCol = mask.colInk.indexOfFirst { it >= colThreshold }
@@ -480,27 +438,46 @@ private fun findContentBounds(mask: MaskAnalysis): NormalizedPdfRect {
     )
 }
 
-private data class SplitResult(
-    val regions: List<PdfPageRegion> = emptyList(),
-    val confidence: Float = 0f,
-)
-
+/**
+ * More permissive than alpha38: a clearly wide page may split even when the physical
+ * spine is dark or slightly noisy. The detector still requires meaningful content on
+ * both sides and searches for a local ink valley near the geometric center.
+ */
 private fun detectSpread(
     mask: MaskAnalysis,
     content: NormalizedPdfRect,
     sourceAspect: Float,
 ): SplitResult {
-    if (sourceAspect < 1.06f || content.width < 0.62f) return SplitResult()
+    if (content.width < 0.60f || content.height < 0.42f) return SplitResult()
+    val contentAspect = sourceAspect * (content.width / content.height.coerceAtLeast(0.01f))
+    val clearlyWide = sourceAspect >= 1.34f || contentAspect >= 1.46f
+    val moderatelyWide = sourceAspect >= 1.12f || contentAspect >= 1.24f
+    if (!moderatelyWide) return SplitResult()
+
     val x0 = (content.left * mask.width).roundToInt().coerceIn(0, mask.width - 1)
     val x1 = (content.right * mask.width).roundToInt().coerceIn(x0 + 1, mask.width)
     val y0 = (content.top * mask.height).roundToInt().coerceIn(0, mask.height - 1)
     val y1 = (content.bottom * mask.height).roundToInt().coerceIn(y0 + 1, mask.height)
-    val centerStart = (x0 + (x1 - x0) * 0.40f).roundToInt()
-    val centerEnd = (x0 + (x1 - x0) * 0.60f).roundToInt().coerceAtLeast(centerStart + 1)
-    val gutterX = (centerStart until centerEnd).minByOrNull { mask.colInk[it] } ?: return SplitResult()
-    val gutterHalf = max(2, mask.width / 80)
+    val contentWidthPx = (x1 - x0).coerceAtLeast(2)
+    val centerStart = (x0 + contentWidthPx * 0.34f).roundToInt()
+    val centerEnd = (x0 + contentWidthPx * 0.66f).roundToInt().coerceAtLeast(centerStart + 1)
+
+    fun smoothedInk(x: Int): Float {
+        val radius = max(1, mask.width / 180)
+        var total = 0
+        var count = 0
+        for (sx in (x - radius).coerceAtLeast(x0)..(x + radius).coerceAtMost(x1 - 1)) {
+            total += mask.colInk[sx]
+            count += 1
+        }
+        return total.toFloat() / count.coerceAtLeast(1)
+    }
+
+    val gutterX = (centerStart until centerEnd).minByOrNull(::smoothedInk) ?: return SplitResult()
+    val gutterHalf = max(2, mask.width / 95)
     val gutterLeft = (gutterX - gutterHalf).coerceAtLeast(x0)
     val gutterRight = (gutterX + gutterHalf).coerceAtMost(x1 - 1)
+    val bandWidth = (gutterRight - gutterLeft + 1).coerceAtLeast(1)
 
     var blankRows = 0
     var inspectedRows = 0
@@ -509,25 +486,24 @@ private fun detectSpread(
         for (x in gutterLeft..gutterRight) {
             if (mask.foreground[y * mask.width + x]) ink += 1
         }
-        val bandWidth = (gutterRight - gutterLeft + 1).coerceAtLeast(1)
-        if (ink <= max(1, (bandWidth * 0.08f).roundToInt())) blankRows += 1
+        if (ink <= max(1, (bandWidth * 0.16f).roundToInt())) blankRows += 1
         inspectedRows += 1
     }
     val blankRatio = blankRows.toFloat() / inspectedRows.coerceAtLeast(1)
 
-    val localRadius = max(4, mask.width / 20)
+    val localRadius = max(5, mask.width / 18)
     val localStart = (gutterX - localRadius).coerceAtLeast(x0)
     val localEnd = (gutterX + localRadius).coerceAtMost(x1 - 1)
-    var localInk = 0f
-    var localCount = 0
+    var neighborhoodInk = 0f
+    var neighborhoodCount = 0
     for (x in localStart..localEnd) {
         if (x !in gutterLeft..gutterRight) {
-            localInk += mask.colInk[x]
-            localCount += 1
+            neighborhoodInk += smoothedInk(x)
+            neighborhoodCount += 1
         }
     }
-    val neighborhoodInk = localInk / localCount.coerceAtLeast(1)
-    val gutterInk = (gutterLeft..gutterRight).map { mask.colInk[it] }.average().toFloat()
+    neighborhoodInk /= neighborhoodCount.coerceAtLeast(1)
+    val gutterInk = (gutterLeft..gutterRight).map { smoothedInk(it) }.average().toFloat()
     val gutterStrength = if (neighborhoodInk <= 0.5f) 0f else {
         (1f - gutterInk / neighborhoodInk).coerceIn(0f, 1f)
     }
@@ -535,66 +511,30 @@ private fun detectSpread(
     val leftInk = sumInk(mask, x0, gutterLeft, y0, y1)
     val rightInk = sumInk(mask, gutterRight + 1, x1, y0, y1)
     val balance = min(leftInk, rightInk).toFloat() / max(leftInk, rightInk).coerceAtLeast(1)
-    val confidence = (blankRatio * 0.48f + gutterStrength * 0.34f + balance * 0.18f)
-        .coerceIn(0f, 1f)
-    if (blankRatio < 0.70f || gutterStrength < 0.52f || balance < 0.24f || confidence < 0.62f) {
-        return SplitResult(confidence = confidence)
-    }
+    val splitFraction = (gutterX - x0).toFloat() / contentWidthPx
+    val centered = 1f - (abs(splitFraction - 0.5f) / 0.18f).coerceIn(0f, 1f)
+
+    val gutterEvidence = blankRatio >= 0.44f && gutterStrength >= 0.28f && balance >= 0.18f
+    val wideFallback = clearlyWide && centered >= 0.35f && balance >= 0.27f && gutterStrength >= 0.10f
+    val accepted = gutterEvidence || wideFallback
+    val confidence = (
+        blankRatio * 0.34f +
+            gutterStrength * 0.28f +
+            balance * 0.22f +
+            centered * 0.16f
+        ).coerceIn(0f, 1f)
+    if (!accepted) return SplitResult(confidence = confidence)
 
     val leftBounds = tightBounds(mask, x0, gutterLeft, y0, y1)
     val rightBounds = tightBounds(mask, gutterRight + 1, x1, y0, y1)
-    if (leftBounds.width < 0.18f || rightBounds.width < 0.18f) return SplitResult(confidence = confidence)
+    if (leftBounds.width < 0.16f || rightBounds.width < 0.16f) {
+        return SplitResult(confidence = confidence)
+    }
+
     return SplitResult(
         regions = listOf(
             PdfPageRegion(leftBounds, PdfRegionRole.LEFT_PAGE),
             PdfPageRegion(rightBounds, PdfRegionRole.RIGHT_PAGE),
-        ),
-        confidence = confidence,
-    )
-}
-
-private fun detectColumns(mask: MaskAnalysis, content: NormalizedPdfRect): SplitResult {
-    if (content.width < 0.56f || content.height < 0.45f) return SplitResult()
-    val x0 = (content.left * mask.width).roundToInt().coerceIn(0, mask.width - 1)
-    val x1 = (content.right * mask.width).roundToInt().coerceIn(x0 + 1, mask.width)
-    val y0 = (content.top * mask.height).roundToInt().coerceIn(0, mask.height - 1)
-    val y1 = (content.bottom * mask.height).roundToInt().coerceIn(y0 + 1, mask.height)
-    val centerStart = (x0 + (x1 - x0) * 0.38f).roundToInt()
-    val centerEnd = (x0 + (x1 - x0) * 0.62f).roundToInt().coerceAtLeast(centerStart + 1)
-    val gutterX = (centerStart until centerEnd).minByOrNull { mask.colInk[it] } ?: return SplitResult()
-    val gutterHalf = max(1, mask.width / 120)
-    val gutterLeft = (gutterX - gutterHalf).coerceAtLeast(x0)
-    val gutterRight = (gutterX + gutterHalf).coerceAtMost(x1 - 1)
-
-    var blankRows = 0
-    var inspectedRows = 0
-    for (y in y0 until y1) {
-        var ink = 0
-        for (x in gutterLeft..gutterRight) {
-            if (mask.foreground[y * mask.width + x]) ink += 1
-        }
-        if (ink <= 1) blankRows += 1
-        inspectedRows += 1
-    }
-    val blankRatio = blankRows.toFloat() / inspectedRows.coerceAtLeast(1)
-    val leftInk = sumInk(mask, x0, gutterLeft, y0, y1)
-    val rightInk = sumInk(mask, gutterRight + 1, x1, y0, y1)
-    val balance = min(leftInk, rightInk).toFloat() / max(leftInk, rightInk).coerceAtLeast(1)
-    val confidence = (blankRatio * 0.72f + balance * 0.28f).coerceIn(0f, 1f)
-    if (blankRatio < 0.50f || balance < 0.20f || confidence < 0.50f) {
-        return SplitResult(confidence = confidence)
-    }
-
-    return SplitResult(
-        regions = listOf(
-            PdfPageRegion(
-                tightBounds(mask, x0, gutterLeft, y0, y1),
-                PdfRegionRole.LEFT_COLUMN,
-            ),
-            PdfPageRegion(
-                tightBounds(mask, gutterRight + 1, x1, y0, y1),
-                PdfRegionRole.RIGHT_COLUMN,
-            ),
         ),
         confidence = confidence,
     )
