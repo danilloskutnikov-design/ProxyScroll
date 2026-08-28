@@ -142,6 +142,7 @@ internal fun TactileLibraryScreen(
 ) {
     val context = LocalContext.current
     var searchExpanded by remember { mutableStateOf(false) }
+    var filtersExpanded by remember { mutableStateOf(state.filter != LibraryFilter.ALL) }
     var editingDocument by remember { mutableStateOf<LibraryDocument?>(null) }
     var editingQuote by remember { mutableStateOf<BookQuote?>(null) }
     var pendingDocumentDelete by remember { mutableStateOf<LibraryDocument?>(null) }
@@ -170,6 +171,8 @@ internal fun TactileLibraryScreen(
         if (searchExpanded || state.query.isNotBlank()) {
             searchExpanded = false
             onQueryChange("")
+        } else if (filtersExpanded) {
+            filtersExpanded = false
         } else {
             onOpenNotes()
         }
@@ -269,9 +272,10 @@ internal fun TactileLibraryScreen(
                 onOpenNotes = onOpenNotes,
                 onOpenLibrary = {},
                 onPrimaryAction = launchImport,
-                primaryActionLabel = "Импорт",
                 primaryActionDescription = "Импортировать PDF",
                 onOpenSettings = onOpenSettings,
+                searchSelected = searchExpanded || state.query.isNotBlank(),
+                onOpenSearch = { searchExpanded = true },
             )
         },
     ) { contentPadding ->
@@ -280,7 +284,7 @@ internal fun TactileLibraryScreen(
                 .fillMaxSize()
                 .padding(contentPadding)
                 .statusBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 LibraryHeader(
@@ -292,6 +296,8 @@ internal fun TactileLibraryScreen(
                         if (!searchExpanded) onQueryChange("")
                     },
                     onQueryChange = onQueryChange,
+                    filtersActive = filtersExpanded || state.filter != LibraryFilter.ALL,
+                    onFiltersToggle = { filtersExpanded = !filtersExpanded },
                 )
             }
 
@@ -304,8 +310,8 @@ internal fun TactileLibraryScreen(
                     continueDocument?.let { document ->
                         item {
                             Column(
-                                modifier = Modifier.padding(horizontal = 18.dp),
-                                verticalArrangement = Arrangement.spacedBy(9.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 LibrarySectionTitle(
                                     icon = { Icon(Icons.Default.MenuBook, contentDescription = null) },
@@ -326,15 +332,15 @@ internal fun TactileLibraryScreen(
                 }
 
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         LibrarySectionTitle(
                             icon = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
                             title = "Моя полка",
                             detail = "${state.visibleDocuments.size} · удерживайте для оформления",
-                            modifier = Modifier.padding(horizontal = 18.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp),
                         )
                         if (state.visibleDocuments.isEmpty()) {
-                            EmptyLibraryResult(modifier = Modifier.padding(horizontal = 18.dp))
+                            EmptyLibraryResult(modifier = Modifier.padding(horizontal = 12.dp))
                         } else {
                             BookshelfRow(
                                 documents = state.visibleDocuments,
@@ -346,26 +352,28 @@ internal fun TactileLibraryScreen(
                     }
                 }
 
-                item {
-                    ReadingStatusRail(
-                        selected = state.filter,
-                        onSelected = onFilterChange,
-                        modifier = Modifier.padding(horizontal = 18.dp),
-                    )
+                if (filtersExpanded || state.filter != LibraryFilter.ALL) {
+                    item {
+                        ReadingStatusRail(
+                            selected = state.filter,
+                            onSelected = onFilterChange,
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    }
                 }
 
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         LibrarySectionTitle(
                             icon = { Icon(Icons.Default.FormatQuote, contentDescription = null) },
                             title = "Цитаты и заметки",
                             detail = if (state.visibleQuotes.isEmpty()) null else {
                                 state.visibleQuotes.size.toString()
                             },
-                            modifier = Modifier.padding(horizontal = 18.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp),
                         )
                         if (state.visibleQuotes.isEmpty()) {
-                            EmptyBookQuotes(modifier = Modifier.padding(horizontal = 18.dp))
+                            EmptyBookQuotes(modifier = Modifier.padding(horizontal = 12.dp))
                         } else {
                             QuoteCarousel(
                                 quotes = state.visibleQuotes,
@@ -388,10 +396,12 @@ private fun LibraryHeader(
     query: String,
     onSearchToggle: () -> Unit,
     onQueryChange: (String) -> Unit,
+    filtersActive: Boolean,
+    onFiltersToggle: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
             text = "ProxyScroll",
@@ -427,11 +437,15 @@ private fun LibraryHeader(
                     modifier = Modifier.size(30.dp),
                 )
             }
-            IconButton(onClick = onSearchToggle) {
+            IconButton(onClick = onFiltersToggle) {
                 Icon(
                     Icons.Default.Tune,
-                    contentDescription = "Поиск и фильтры",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    contentDescription = "Фильтры",
+                    tint = if (filtersActive) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
         }
@@ -450,7 +464,7 @@ private fun LibraryHeader(
                     }
                 } else null,
                 placeholder = { Text("Название или автор") },
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.46f),
                     unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.28f),
@@ -470,10 +484,10 @@ private fun LibrarySectionTitle(
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Box(
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(20.dp),
             contentAlignment = Alignment.Center,
         ) {
             androidx.compose.runtime.CompositionLocalProvider(
@@ -510,23 +524,23 @@ private fun ContinueReadingShelf(
         ProxySurface(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(16.dp))
                 .clickable(onClick = onOpen),
             role = ProxySurfaceRole.CARD,
             strong = true,
             interactive = false,
         ) {
             Row(
-                modifier = Modifier.padding(14.dp),
+                modifier = Modifier.padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(15.dp),
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
                 TactileBookCover(
                     document = document,
                     quoteCount = quoteCount,
                     modifier = Modifier
-                        .width(104.dp)
-                        .height(150.dp)
+                        .width(96.dp)
+                        .height(142.dp)
                         .shadow(16.dp, RoundedCornerShape(5.dp)),
                 )
                 Column(Modifier.weight(1f)) {
@@ -558,14 +572,14 @@ private fun ContinueReadingShelf(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(8.dp))
                     Text(
                         text = "${(progress * 100).roundToInt()}%",
-                        fontSize = 28.sp,
+                        fontSize = 25.sp,
                         color = tactileCoverAccent(document),
                         fontWeight = FontWeight.Medium,
                     )
-                    Spacer(Modifier.height(5.dp))
+                    Spacer(Modifier.height(4.dp))
                     Box(
                         Modifier
                             .fillMaxWidth()
@@ -580,7 +594,7 @@ private fun ContinueReadingShelf(
                                 .background(tactileCoverAccent(document)),
                         )
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(7.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = tactileLibraryPosition(document),
@@ -627,8 +641,8 @@ private fun BookshelfRow(
     Column {
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
             items(documents, key = { it.id }) { document ->
@@ -741,8 +755,8 @@ private fun ReadingStatusRail(
                 RoundedCornerShape(18.dp),
             )
             .horizontalScroll(rememberScrollState())
-            .padding(7.dp),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         LibraryFilter.entries.forEach { filter ->
             val active = filter == selected
@@ -766,9 +780,9 @@ private fun ReadingStatusRail(
                         RoundedCornerShape(14.dp),
                     )
                     .clickable { onSelected(filter) }
-                    .padding(horizontal = 13.dp, vertical = 10.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 when (filter) {
                     LibraryFilter.ALL -> Icon(Icons.Default.MenuBook, null, Modifier.size(17.dp))
@@ -798,8 +812,8 @@ private fun QuoteCarousel(
 ) {
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(quotes, key = { it.id }) { quote ->
             val document = documents.firstOrNull { it.id == quote.documentId }
@@ -821,14 +835,14 @@ private fun QuoteCard(
     val accent = document?.let(::tactileCoverAccent) ?: MaterialTheme.colorScheme.primary
     ProxySurface(
         modifier = Modifier
-            .width(286.dp)
-            .heightIn(min = 188.dp)
+            .width(252.dp)
+            .heightIn(min = 174.dp)
             .clickable(onClick = onClick),
         role = ProxySurfaceRole.CARD,
         strong = true,
         interactive = false,
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.Top) {
                 Box(
                     Modifier
@@ -864,9 +878,9 @@ private fun QuoteCard(
                     modifier = Modifier.padding(start = 13.dp, top = 7.dp),
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(7.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (document != null) {
                     TactileBookCover(
@@ -906,12 +920,12 @@ private fun EmptyBookQuotes(modifier: Modifier = Modifier) {
         interactive = false,
     ) {
         Row(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             ProxyInsetSurface(
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(42.dp),
                 role = ProxySurfaceRole.BUTTON,
                 selected = false,
             ) {
@@ -940,22 +954,22 @@ private fun EmptyTactileLibrary(onImport: () -> Unit) {
     ProxySurface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp),
+            .padding(horizontal = 12.dp),
         role = ProxySurfaceRole.CARD,
         strong = true,
         interactive = false,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 26.dp, vertical = 38.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 26.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
                 Icons.Default.MenuBook,
                 contentDescription = null,
-                modifier = Modifier.size(58.dp),
+                modifier = Modifier.size(48.dp),
                 tint = MaterialTheme.colorScheme.primary,
             )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
             Text("Соберите свою первую полку", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(7.dp))
             Text(
@@ -965,7 +979,7 @@ private fun EmptyTactileLibrary(onImport: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
             OutlinedButton(onClick = onImport) {
                 Icon(Icons.Default.Add, contentDescription = null)
                 Spacer(Modifier.width(8.dp))

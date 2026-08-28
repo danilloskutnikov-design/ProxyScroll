@@ -60,6 +60,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -160,6 +161,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -736,11 +738,12 @@ private fun NotesScreen(
     onActiveGroupFilterChanged: (String?) -> Unit,
 ) {
     val searchInteractionSource = remember { MutableInteractionSource() }
-    val searchFocused by searchInteractionSource.collectIsFocusedAsState()
+    val searchFocusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
     val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     val themePrimaryColor = MaterialTheme.colorScheme.primary
     var showGroupPicker by remember { mutableStateOf(false) }
+    var searchExpanded by remember { mutableStateOf(state.query.isNotBlank()) }
     var showCreateGroup by remember { mutableStateOf(false) }
     var editingGroup by remember { mutableStateOf<NoteGroup?>(null) }
     var pendingDeleteGroup by remember { mutableStateOf<NoteGroup?>(null) }
@@ -786,6 +789,18 @@ private fun NotesScreen(
     }
     BackHandler(enabled = selectionMode) { selectedIds = emptyList() }
     BackHandler(enabled = showGroupPicker && !selectionMode) { showGroupPicker = false }
+    BackHandler(
+        enabled = searchExpanded && !selectionMode && !showGroupPicker,
+    ) {
+        searchExpanded = false
+        onQueryChange("")
+    }
+    LaunchedEffect(searchExpanded) {
+        if (searchExpanded) {
+            delay(80)
+            searchFocusRequester.requestFocus()
+        }
+    }
     LaunchedEffect(visibleNotes.map { it.id }) {
         val activeIds = visibleNotes.mapTo(mutableSetOf()) { it.id }
         selectedIds = selectedIds.filter { it in activeIds }
@@ -862,30 +877,23 @@ private fun NotesScreen(
                     onOpenNotes = {},
                     onOpenLibrary = onOpenLibrary,
                     onPrimaryAction = onCreate,
-                    primaryActionLabel = "Новая",
                     primaryActionDescription = "Создать заметку",
                     onOpenSettings = onOpenSettings,
+                    searchSelected = searchExpanded || state.query.isNotBlank(),
+                    onOpenSearch = { searchExpanded = true },
                 )
             }
         },
         topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    if (selectionMode) {
-                        Text("${selectedIds.size} выбрано")
-                    } else {
-                        ProxyBrandLockup()
-                    }
-                },
-                navigationIcon = {
-                    if (selectionMode) {
+            if (selectionMode) {
+                CenterAlignedTopAppBar(
+                    title = { Text("${selectedIds.size} выбрано") },
+                    navigationIcon = {
                         IconButton(onClick = { selectedIds = emptyList() }) {
                             Icon(Icons.Default.Close, contentDescription = "Отменить выбор")
                         }
-                    }
-                },
-                actions = {
-                    if (selectionMode) {
+                    },
+                    actions = {
                         IconButton(
                             onClick = {
                                 selectedIds = if (allVisibleSelected) {
@@ -929,99 +937,12 @@ private fun NotesScreen(
                                 tint = MaterialTheme.colorScheme.error,
                             )
                         }
-                    } else {
-                        Row(
-                            modifier = Modifier.padding(end = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            ProxySurface(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .animatedClick(onClick = onOpenTrash, pressedScale = 0.96f),
-                                role = ProxySurfaceRole.BUTTON,
-                                strong = state.trash.isNotEmpty(),
-                            ) {
-                                Box(
-                                    Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.RestoreFromTrash,
-                                        contentDescription = "Корзина",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                    if (state.trash.isNotEmpty()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .size(16.dp)
-                                                .clip(
-                                                    if (liteLife) {
-                                                        RoundedCornerShape(0.dp)
-                                                    } else {
-                                                        CircleShape
-                                                    },
-                                                )
-                                                .background(MaterialTheme.colorScheme.primary),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text(
-                                                text = state.trash.size.coerceAtMost(99).toString(),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onPrimary,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            ProxySurface(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .animatedClick(
-                                        onClick = onOpenSettings,
-                                        pressedScale = 0.96f,
-                                    ),
-                                role = ProxySurfaceRole.BUTTON,
-                                strong = true,
-                            ) {
-                                Box(
-                                    Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Settings,
-                                        contentDescription = "Настройки",
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = Color.Transparent,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
-                ),
-            )
-        },
-        floatingActionButton = {
-            if (!selectionMode) {
-                ProxySurface(
-                    modifier = Modifier
-                        .size(60.dp)
-                        .animatedClick(onClick = onCreate, pressedScale = 0.96f),
-                    role = ProxySurfaceRole.BUTTON,
-                    strong = true,
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Новая заметка",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(30.dp),
-                        )
-                    }
-                }
+                    },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    ),
+                )
             }
         },
     ) { contentPadding ->
@@ -1029,48 +950,98 @@ private fun NotesScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(contentPadding)
-                .padding(horizontal = 16.dp),
+                .then(if (selectionMode) Modifier else Modifier.statusBarsPadding())
+                .padding(horizontal = 12.dp),
         ) {
-            Text(
-                text = "Заметки",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AnimatedContent(
-                    targetState = visibleNotes.size,
-                    modifier = Modifier.weight(1f),
-                    transitionSpec = {
-                        val duration = if (liteLife) 1 else 240
-                        fadeIn(tween(duration)) togetherWith fadeOut(tween(duration))
-                    },
-                    label = "note-count",
-                ) { count ->
-                    Text(
-                        text = if (selectedGroup != null) {
-                            "${notesCountLabel(count)} · ${selectedGroup.name}"
-                        } else {
-                            notesCountLabel(count)
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                ProxySurface(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .animatedClick(
-                            onClick = { showGroupPicker = !showGroupPicker },
-                            pressedScale = 0.92f,
-                        ),
-                    role = ProxySurfaceRole.BUTTON,
-                    strong = showGroupPicker || activeGroupFilter != null,
-                    active = showGroupPicker,
+            if (!selectionMode) {
+                Text(
+                    text = "ProxyScroll",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 2.dp, top = 2.dp),
+                )
+                Spacer(Modifier.height(2.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "Заметки",
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        AnimatedContent(
+                            targetState = visibleNotes.size,
+                            transitionSpec = {
+                                val duration = if (liteLife) 1 else 240
+                                fadeIn(tween(duration)) togetherWith fadeOut(tween(duration))
+                            },
+                            label = "note-count",
+                        ) { count ->
+                            Text(
+                                text = if (selectedGroup != null) {
+                                    "${notesCountLabel(count)} · ${selectedGroup.name}"
+                                } else {
+                                    notesCountLabel(count)
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = {
+                            searchExpanded = !searchExpanded
+                            if (!searchExpanded) onQueryChange("")
+                        },
+                    ) {
+                        Icon(
+                            imageVector = if (searchExpanded) {
+                                Icons.Default.Close
+                            } else {
+                                Icons.Default.Search
+                            },
+                            contentDescription = if (searchExpanded) {
+                                "Закрыть поиск"
+                            } else {
+                                "Поиск"
+                            },
+                            tint = if (searchExpanded) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    IconButton(onClick = onOpenTrash) {
+                        Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.RestoreFromTrash,
+                                contentDescription = "Корзина",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (state.trash.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(14.dp)
+                                        .clip(if (liteLife) RectangleShape else CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = state.trash.size.coerceAtMost(9).toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    IconButton(onClick = { showGroupPicker = !showGroupPicker }) {
                         Icon(
                             imageVector = Icons.Default.FilterAlt,
                             contentDescription = if (showGroupPicker) {
@@ -1079,7 +1050,11 @@ private fun NotesScreen(
                                 "Показать группы"
                             },
                             tint = selectedGroup?.let(::noteGroupColor)
-                                ?: MaterialTheme.colorScheme.onSurface,
+                                ?: if (showGroupPicker) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                         )
                     }
                 }
@@ -1092,7 +1067,7 @@ private fun NotesScreen(
                     slideOutVertically(tween(if (liteLife) 1 else 220)) { -it / 3 },
             ) {
                 Column {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(6.dp))
                     LiquidGroupRail(
                         groups = state.groups,
                         notes = state.notes,
@@ -1118,57 +1093,57 @@ private fun NotesScreen(
                     )
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            ProxySurface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (liteLife) Modifier
-                        else Modifier.animateContentSize(animationSpec = tween(320)),
-                    ),
-                role = ProxySurfaceRole.INPUT,
-                active = searchFocused || state.query.isNotEmpty(),
+            AnimatedVisibility(
+                visible = !selectionMode && (searchExpanded || state.query.isNotBlank()),
+                enter = fadeIn(tween(if (liteLife) 1 else 160)) +
+                    slideInVertically(tween(if (liteLife) 1 else 220)) { -it / 4 },
+                exit = fadeOut(tween(if (liteLife) 1 else 120)),
             ) {
-                val searchShape = RoundedCornerShape(
-                    LocalProxyShape.current.resolvedInputCornerDp.dp,
-                )
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = onQueryChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    interactionSource = searchInteractionSource,
-                    singleLine = true,
-                    shape = searchShape,
-                    placeholder = { Text("Найти заметку") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (state.query.isNotEmpty()) {
-                            IconButton(onClick = { onQueryChange("") }) {
-                                Icon(Icons.Default.Close, contentDescription = "Очистить поиск")
+                Column {
+                    Spacer(Modifier.height(6.dp))
+                    val searchShape = RoundedCornerShape(
+                        LocalProxyShape.current.resolvedInputCornerDp.dp,
+                    )
+                    OutlinedTextField(
+                        value = state.query,
+                        onValueChange = onQueryChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(searchFocusRequester),
+                        interactionSource = searchInteractionSource,
+                        singleLine = true,
+                        shape = searchShape,
+                        placeholder = { Text("Найти заметку") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (state.query.isNotEmpty()) {
+                                IconButton(onClick = { onQueryChange("") }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Очистить поиск")
+                                }
                             }
-                        }
-                    },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                    ),
-                )
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.54f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.34f),
+                            focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.52f),
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+                        ),
+                    )
+                }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
 
             if (visibleNotes.isEmpty()) {
                 EmptyNotes(
                     isSearching = state.query.isNotBlank() || activeGroupFilter != null,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(bottom = 88.dp),
+                        .padding(bottom = 24.dp),
                 )
             } else {
                 LazyColumn(
                     state = listState,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     noteGroups.forEach { group ->
@@ -1198,7 +1173,7 @@ private fun NotesScreen(
                             )
                         }
                     }
-                    item { Spacer(Modifier.height(96.dp)) }
+                    item { Spacer(Modifier.height(16.dp)) }
                 }
             }
         }
@@ -1966,7 +1941,7 @@ private fun NoteGroupHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, top = 8.dp, end = 4.dp, bottom = 7.dp),
+            .padding(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -2091,7 +2066,7 @@ private fun NoteCard(
                             ),
                     )
                 }
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2136,7 +2111,7 @@ private fun NoteCard(
                             modifier = Modifier.weight(1f),
                         )
                         if (!selectionMode) {
-                            IconButton(onClick = onTogglePinned, modifier = Modifier.size(36.dp)) {
+                            IconButton(onClick = onTogglePinned, modifier = Modifier.size(32.dp)) {
                                 Icon(
                                     imageVector = Icons.Default.PushPin,
                                     contentDescription = if (note.isPinned) {
@@ -2162,11 +2137,11 @@ private fun NoteCard(
                                 textAlign = note.textAlignment.toComposeTextAlign(),
                             ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 3,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Spacer(Modifier.height(9.dp))
+                    Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = DateFormat.getDateTimeInstance(
@@ -2467,30 +2442,36 @@ internal fun MainSectionBar(
     onOpenNotes: () -> Unit,
     onOpenLibrary: () -> Unit,
     onPrimaryAction: () -> Unit,
-    primaryActionLabel: String,
     primaryActionDescription: String,
     onOpenSettings: () -> Unit,
+    searchSelected: Boolean = false,
+    onOpenSearch: () -> Unit = {},
 ) {
-    ProxySurface(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        role = ProxySurfaceRole.OVERLAY,
-        strong = true,
-        interactive = false,
-        deformContent = false,
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+            .drawBehind {
+                drawLine(
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f),
+                    start = Offset.Zero,
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            },
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 3.dp),
+                .navigationBarsPadding()
+                .height(70.dp)
+                .padding(horizontal = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             MainNavigationItem(
                 label = "Заметки",
-                selected = notesSelected,
+                selected = notesSelected && !searchSelected,
                 onClick = onOpenNotes,
                 icon = {
                     Icon(Icons.Default.Description, contentDescription = null)
@@ -2499,7 +2480,7 @@ internal fun MainSectionBar(
             )
             MainNavigationItem(
                 label = "Библиотека",
-                selected = !notesSelected,
+                selected = !notesSelected && !searchSelected,
                 onClick = onOpenLibrary,
                 icon = {
                     Icon(Icons.Default.MenuBook, contentDescription = null)
@@ -2509,31 +2490,40 @@ internal fun MainSectionBar(
             Column(
                 modifier = Modifier
                     .weight(1f)
+                    .fillMaxHeight()
                     .animatedClick(onClick = onPrimaryAction, pressedScale = 0.94f),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.Top,
             ) {
-                ProxyInsetSurface(
-                    modifier = Modifier.size(46.dp),
+                ProxySurface(
+                    modifier = Modifier
+                        .offset(y = (-8).dp)
+                        .size(58.dp),
+                    shape = CircleShape,
                     role = ProxySurfaceRole.BUTTON,
-                    selected = true,
+                    strong = true,
+                    interactive = false,
+                    deformContent = false,
                 ) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Icon(
                             Icons.Default.Add,
                             contentDescription = primaryActionDescription,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(27.dp),
+                            modifier = Modifier.size(31.dp),
                         )
                     }
                 }
-                Text(
-                    text = primaryActionLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
             }
+            MainNavigationItem(
+                label = "Поиск",
+                selected = searchSelected,
+                onClick = onOpenSearch,
+                icon = {
+                    Icon(Icons.Default.Search, contentDescription = null)
+                },
+                modifier = Modifier.weight(1f),
+            )
             MainNavigationItem(
                 label = "Настройки",
                 selected = false,
@@ -2562,22 +2552,20 @@ private fun MainNavigationItem(
     }
     Column(
         modifier = modifier
-            .height(62.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(
-                if (selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-                } else {
-                    Color.Transparent
-                },
-            )
+            .height(66.dp)
             .animatedClick(onClick = onClick, pressedScale = 0.96f)
-            .padding(horizontal = 4.dp, vertical = 7.dp),
+            .padding(horizontal = 2.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
+        Box(
+            Modifier
+                .width(22.dp)
+                .height(2.dp)
+                .background(if (selected) contentColor else Color.Transparent),
+        )
         CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides contentColor) {
-            Box(Modifier.size(25.dp), contentAlignment = Alignment.Center) { icon() }
+            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { icon() }
         }
         Text(
             text = label,
@@ -2676,7 +2664,6 @@ private fun LibraryScreen(
                 onOpenNotes = onOpenNotes,
                 onOpenLibrary = {},
                 onPrimaryAction = launchImport,
-                primaryActionLabel = "Импорт",
                 primaryActionDescription = "Импортировать PDF",
                 onOpenSettings = onOpenSettings,
             )
@@ -5427,7 +5414,7 @@ private fun SettingsSheet(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .fillMaxHeight(0.94f),
+                .fillMaxHeight(0.97f),
             shape = if (selectedTheme == AppTheme.CYBERPUNK) {
                 CutCornerShape(
                     topStart = sheetCorner,
@@ -5463,8 +5450,8 @@ private fun SettingsSheet(
                     )
                     .navigationBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
-                    .padding(top = 14.dp, bottom = 24.dp),
+                    .padding(horizontal = 12.dp)
+                    .padding(top = 8.dp, bottom = 16.dp),
             ) {
                 if (selectedTheme != AppTheme.LITE_LIFE) {
                     Box(
@@ -5477,9 +5464,9 @@ private fun SettingsSheet(
                                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f),
                             ),
                     )
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(8.dp))
                 } else {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(2.dp))
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -5508,7 +5495,7 @@ private fun SettingsSheet(
                         Icon(Icons.Default.Close, contentDescription = "Закрыть настройки")
                     }
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -5526,7 +5513,7 @@ private fun SettingsSheet(
                         modifier = Modifier.weight(1f),
                     )
                 }
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(12.dp))
                 if (settingsTab == SettingsTab.LABS) {
                     LabsSettingsPanel(
                         settings = labsSettings,
@@ -5537,53 +5524,28 @@ private fun SettingsSheet(
                     )
                 } else {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    CompactThemeOption(
-                        theme = AppTheme.LIQUID_GLASS,
-                        title = "Liquid Glass",
-                        selected = selectedTheme == AppTheme.LIQUID_GLASS,
-                        onClick = { onThemeSelected(AppTheme.LIQUID_GLASS) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    CompactThemeOption(
-                        theme = AppTheme.ROYAL_GRAPHITE,
-                        title = "Royal Graphite",
-                        selected = selectedTheme == AppTheme.ROYAL_GRAPHITE,
-                        onClick = { onThemeSelected(AppTheme.ROYAL_GRAPHITE) },
-                        modifier = Modifier.weight(1f),
-                    )
+                    AppTheme.entries.forEach { theme ->
+                        CompactThemeOption(
+                            theme = theme,
+                            title = when (theme) {
+                                AppTheme.LIQUID_GLASS -> "Liquid Glass"
+                                AppTheme.ROYAL_GRAPHITE -> "Royal Graphite"
+                                AppTheme.OLD_SCROLL -> "OldScroll"
+                                AppTheme.LITE_LIFE -> "LiteLife"
+                                AppTheme.CYBERPUNK -> "Cyberpunk"
+                            },
+                            selected = selectedTheme == theme,
+                            onClick = { onThemeSelected(theme) },
+                            modifier = Modifier.width(148.dp),
+                        )
+                    }
                 }
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    CompactThemeOption(
-                        theme = AppTheme.OLD_SCROLL,
-                        title = "OldScroll",
-                        selected = selectedTheme == AppTheme.OLD_SCROLL,
-                        onClick = { onThemeSelected(AppTheme.OLD_SCROLL) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    CompactThemeOption(
-                        theme = AppTheme.LITE_LIFE,
-                        title = "LiteLife",
-                        selected = selectedTheme == AppTheme.LITE_LIFE,
-                        onClick = { onThemeSelected(AppTheme.LITE_LIFE) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                CompactThemeOption(
-                    theme = AppTheme.CYBERPUNK,
-                    title = "Cyberpunk",
-                    selected = selectedTheme == AppTheme.CYBERPUNK,
-                    onClick = { onThemeSelected(AppTheme.CYBERPUNK) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.height(14.dp))
                 Text(
                     text = when (selectedTheme) {
                         AppTheme.OLD_SCROLL -> "Характер бумаги"
@@ -6407,7 +6369,7 @@ private fun CompactThemeOption(
 ) {
     ProxyInsetSurface(
         modifier = modifier
-            .height(68.dp)
+            .height(58.dp)
             .animatedClick(onClick = onClick, pressedScale = 0.96f),
         role = ProxySurfaceRole.CARD,
         selected = selected,
@@ -6415,11 +6377,11 @@ private fun CompactThemeOption(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 10.dp),
+                .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            ThemeSwatch(theme, modifier = Modifier.size(38.dp))
+            ThemeSwatch(theme, modifier = Modifier.size(32.dp))
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelLarge,
@@ -6431,7 +6393,7 @@ private fun CompactThemeOption(
                     Icons.Default.CheckCircle,
                     contentDescription = "Выбрано",
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
