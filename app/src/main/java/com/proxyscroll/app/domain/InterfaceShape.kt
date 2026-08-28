@@ -90,6 +90,13 @@ fun AppTheme.defaultInterfaceShape(): InterfaceShape = when (this) {
         buttonCornerDp = 0,
         linked = false,
     )
+    AppTheme.CYBERPUNK -> InterfaceShape(
+        globalCornerDp = 5,
+        cardCornerDp = 6,
+        inputCornerDp = 4,
+        buttonCornerDp = 8,
+        linked = false,
+    )
 }
 
 fun InterfaceShape.resolveFor(theme: AppTheme): InterfaceShape {
