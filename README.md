@@ -1,6 +1,6 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes and reading app for Android. The current build is **0.23.0-alpha36**.
+ProxyScroll is an offline-first notes and reading app for Android. The current build is **0.24.0-alpha37**.
 
 ## Alpha features
 
@@ -127,6 +127,10 @@ ProxyScroll is an offline-first notes and reading app for Android. The current b
 - Hardware background blur on Android 12+ with a low-cost refractive fallback for older devices
 - Double Fresnel bevels with restrained edge-only chromatic dispersion and contact shadows
 - Stable text and geometry while touch changes transmission, displacement, and specular light
+- Up-and-hold note gesture that reveals group filters without occupying the content plane
+- A separately layered central navigation lens with correct gesture and 3-button system insets
+- Smart Crop as the phone-first PDF default, with reduced chrome and automatic control hiding
+- CPU-blurred page atmosphere across the whole reader, including every PDF colour profile
 
 ## Storage and compatibility
 
@@ -136,7 +140,7 @@ The UI depends on the domain repository contract rather than its SharedPreferenc
 
 ## Build
 
-GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.23.0-alpha36-update.apk` to update the normal package while keeping local data. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.23.0-alpha36-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.23.0-alpha36-installers` artifact and support Android 8.0 or newer.
+GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.24.0-alpha37-update.apk` to update the normal package while keeping local data. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.24.0-alpha37-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.24.0-alpha37-installers` artifact and support Android 8.0 or newer.
 
 Alpha APKs use a repository-local debug-only signing key so later Alpha builds can update in place without erasing local notes. This key must never be used for a production release.
 

@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -76,9 +77,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -95,6 +99,7 @@ import com.proxyscroll.app.ui.theme.ProxySurface
 import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -109,8 +114,13 @@ private data class ModernPdfDocumentInfo(
 )
 
 private data class ModernPdfPageRender(
-    val image: ImageBitmap? = null,
+    val frame: ModernPdfPageFrame? = null,
     val error: String? = null,
+)
+
+private data class ModernPdfPageFrame(
+    val image: ImageBitmap,
+    val backdrop: ImageBitmap,
 )
 
 internal enum class PdfReadingProfile(val label: String) {
@@ -124,15 +134,19 @@ internal enum class PdfReadingProfile(val label: String) {
 private class ModernPdfBitmapCache(
     private val maxEntries: Int = 7,
 ) {
-    private val pages = object : LinkedHashMap<Int, ImageBitmap>(maxEntries, 0.75f, true) {
+    private val pages = object : LinkedHashMap<Int, ModernPdfPageFrame>(
+        maxEntries,
+        0.75f,
+        true,
+    ) {
         override fun removeEldestEntry(
-            eldest: MutableMap.MutableEntry<Int, ImageBitmap>?,
+            eldest: MutableMap.MutableEntry<Int, ModernPdfPageFrame>?,
         ): Boolean = size > maxEntries
     }
 
-    fun get(page: Int): ImageBitmap? = synchronized(this) { pages[page] }
+    fun get(page: Int): ModernPdfPageFrame? = synchronized(this) { pages[page] }
 
-    fun getOrRender(page: Int, render: () -> ImageBitmap): ImageBitmap {
+    fun getOrRender(page: Int, render: () -> ModernPdfPageFrame): ModernPdfPageFrame {
         get(page)?.let { return it }
         val rendered = render()
         return synchronized(this) {
@@ -254,7 +268,7 @@ private fun ModernPdfReaderReady(
     var scrubPage by remember(document.id) { mutableFloatStateOf(initialPage.toFloat()) }
     var isScrubbing by remember { mutableStateOf(false) }
     var readingProfile by remember(document.id) { mutableStateOf(PdfReadingProfile.ORIGINAL) }
-    var layoutMode by remember(document.id) { mutableStateOf(PdfLayoutMode.ORIGINAL) }
+    var layoutMode by remember(document.id) { mutableStateOf(PdfLayoutMode.SMART_CROP) }
     var quoteDialogPage by remember(document.id) { mutableStateOf<Int?>(null) }
     val latestScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
 
@@ -272,6 +286,12 @@ private fun ModernPdfReaderReady(
     LaunchedEffect(layoutMode) {
         resetZoom()
         currentScale = 1f
+    }
+    LaunchedEffect(controlsVisible, menuExpanded, quoteDialogPage, isScrubbing) {
+        if (controlsVisible && !menuExpanded && quoteDialogPage == null && !isScrubbing) {
+            delay(3200)
+            controlsVisible = false
+        }
     }
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.isScrollInProgress }
@@ -353,6 +373,7 @@ private fun ModernPdfReaderReady(
                 reflowCache = reflowCache,
                 readingProfile = readingProfile,
                 layoutMode = layoutMode,
+                controlsVisible = controlsVisible,
                 isCurrent = page == pagerState.currentPage,
                 resetZoomToken = resetZoomToken,
                 onScaleChanged = { scale ->
@@ -676,6 +697,7 @@ private fun ModernPdfReaderPage(
     reflowCache: SmartPdfReflowCache,
     readingProfile: PdfReadingProfile,
     layoutMode: PdfLayoutMode,
+    controlsVisible: Boolean,
     isCurrent: Boolean,
     resetZoomToken: Int,
     onScaleChanged: (Float) -> Unit,
@@ -694,6 +716,7 @@ private fun ModernPdfReaderPage(
             page = page,
             mode = layoutMode,
             readingProfile = readingProfile,
+            controlsVisible = controlsVisible,
             cache = reflowCache,
             isCurrent = isCurrent,
             onInteractionChanged = onInteractionChanged,
@@ -706,13 +729,13 @@ private fun ModernPdfReaderPage(
     }
 
     val context = LocalContext.current
-    val cachedImage = remember(document.uri, page) { bitmapCache.get(page) }
+    val cachedFrame = remember(document.uri, page) { bitmapCache.get(page) }
     val render by produceState(
-        initialValue = ModernPdfPageRender(image = cachedImage),
+        initialValue = ModernPdfPageRender(frame = cachedFrame),
         key1 = document.uri,
         key2 = page,
     ) {
-        if (value.image == null) {
+        if (value.frame == null) {
             value = withContext(Dispatchers.IO) {
                 renderModernPdfPage(
                     context = context,
@@ -725,6 +748,12 @@ private fun ModernPdfReaderPage(
     }
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        render.frame?.let { frame ->
+            PdfPageBackdrop(
+                image = frame.backdrop,
+                readingProfile = readingProfile,
+            )
+        }
         when {
             render.error != null -> Column(
                 modifier = Modifier.padding(28.dp),
@@ -743,9 +772,9 @@ private fun ModernPdfReaderPage(
                     textAlign = TextAlign.Center,
                 )
             }
-            render.image == null -> CircularProgressIndicator()
+            render.frame == null -> CircularProgressIndicator()
             else -> ZoomablePdfPage(
-                image = render.image ?: return@Box,
+                image = render.frame?.image ?: return@Box,
                 page = page,
                 readingProfile = readingProfile,
                 isCurrent = isCurrent,
@@ -933,17 +962,21 @@ private fun ZoomablePdfPage(
                 .aspectRatio(imageAspect)
         }
 
-        ProxySurface(
-            modifier = pageModifier.graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                translationX = offsetX
-                translationY = offsetY
-            },
-            role = ProxySurfaceRole.CARD,
-            strong = true,
-            interactive = false,
-            deformContent = false,
+        Box(
+            modifier = pageModifier
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
+                    translationY = offsetY
+                }
+                .shadow(
+                    elevation = 12.dp,
+                    shape = RoundedCornerShape(3.dp),
+                    clip = false,
+                )
+                .clip(RoundedCornerShape(3.dp))
+                .background(Color.White),
         ) {
             Image(
                 bitmap = image,
@@ -953,6 +986,55 @@ private fun ZoomablePdfPage(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+    }
+}
+
+@Composable
+internal fun PdfPageBackdrop(
+    image: ImageBitmap,
+    readingProfile: PdfReadingProfile,
+    modifier: Modifier = Modifier,
+) {
+    val baseColor = when (readingProfile) {
+        PdfReadingProfile.ORIGINAL -> MaterialTheme.colorScheme.background
+        PdfReadingProfile.SEPIA -> Color(0xFF2F2115)
+        PdfReadingProfile.NIGHT -> Color(0xFF030507)
+        PdfReadingProfile.WARM -> Color(0xFF352017)
+        PdfReadingProfile.CONTRAST -> Color(0xFF080A0D)
+    }
+    val veilColor = when (readingProfile) {
+        PdfReadingProfile.ORIGINAL -> Color.Black.copy(alpha = 0.16f)
+        PdfReadingProfile.SEPIA -> Color(0xFF6D3F1D).copy(alpha = 0.20f)
+        PdfReadingProfile.NIGHT -> Color.Black.copy(alpha = 0.34f)
+        PdfReadingProfile.WARM -> Color(0xFF8B3E1B).copy(alpha = 0.16f)
+        PdfReadingProfile.CONTRAST -> Color.Black.copy(alpha = 0.24f)
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(baseColor)
+            .clipToBounds(),
+    ) {
+        Image(
+            bitmap = image,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            colorFilter = pdfReadingColorFilter(readingProfile),
+            filterQuality = FilterQuality.Medium,
+            alpha = 0.92f,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = 1.12f
+                    scaleY = 1.12f
+                },
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(veilColor),
+        )
     }
 }
 
@@ -1023,7 +1105,7 @@ private fun renderModernPdfPage(
     cache: ModernPdfBitmapCache,
 ): ModernPdfPageRender = runCatching {
     cache.get(requestedPage)?.let { cached ->
-        return@runCatching ModernPdfPageRender(image = cached)
+        return@runCatching ModernPdfPageRender(frame = cached)
     }
     val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
         ?: error("Файл больше недоступен")
@@ -1031,7 +1113,7 @@ private fun renderModernPdfPage(
         PdfRenderer(file).use { renderer ->
             if (renderer.pageCount <= 0) error("В документе нет страниц")
             val actualPage = requestedPage.coerceIn(0, renderer.pageCount - 1)
-            val image = cache.getOrRender(actualPage) {
+            val frame = cache.getOrRender(actualPage) {
                 renderer.openPage(actualPage).use { page ->
                     val targetWidth = 1600
                     val targetHeight = (targetWidth.toFloat() * page.height / page.width)
@@ -1044,12 +1126,93 @@ private fun renderModernPdfPage(
                     )
                     bitmap.eraseColor(android.graphics.Color.WHITE)
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    bitmap.asImageBitmap()
+                    ModernPdfPageFrame(
+                        image = bitmap.asImageBitmap(),
+                        backdrop = createPdfBackdrop(bitmap),
+                    )
                 }
             }
-            ModernPdfPageRender(image = image)
+            ModernPdfPageRender(frame = frame)
         }
     }
 }.getOrElse { error ->
     ModernPdfPageRender(error = error.message ?: "Неизвестная ошибка чтения")
+}
+
+/**
+ * Creates a tiny, CPU-blurred page atmosphere. It is cheap enough to generate
+ * with the page render and keeps the immersive background available before
+ * Android 12, where a render-effect blur is not guaranteed.
+ */
+internal fun createPdfBackdrop(source: Bitmap): ImageBitmap {
+    val targetWidth = 56
+    val targetHeight = (
+        targetWidth.toFloat() * source.height / source.width.coerceAtLeast(1)
+        ).roundToInt().coerceIn(56, 112)
+    val thumbnail = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+    val pixels = IntArray(targetWidth * targetHeight)
+    thumbnail.getPixels(pixels, 0, targetWidth, 0, 0, targetWidth, targetHeight)
+
+    var sourcePixels = pixels
+    var destinationPixels = IntArray(pixels.size)
+    repeat(3) {
+        blurPdfBackdropPass(
+            source = sourcePixels,
+            destination = destinationPixels,
+            width = targetWidth,
+            height = targetHeight,
+            radius = 5,
+            horizontal = true,
+        )
+        val horizontalPixels = destinationPixels
+        destinationPixels = sourcePixels
+        sourcePixels = horizontalPixels
+        blurPdfBackdropPass(
+            source = sourcePixels,
+            destination = destinationPixels,
+            width = targetWidth,
+            height = targetHeight,
+            radius = 5,
+            horizontal = false,
+        )
+        val verticalPixels = destinationPixels
+        destinationPixels = sourcePixels
+        sourcePixels = verticalPixels
+    }
+
+    val blurred = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+    blurred.setPixels(sourcePixels, 0, targetWidth, 0, 0, targetWidth, targetHeight)
+    if (thumbnail !== source) thumbnail.recycle()
+    return blurred.asImageBitmap()
+}
+
+private fun blurPdfBackdropPass(
+    source: IntArray,
+    destination: IntArray,
+    width: Int,
+    height: Int,
+    radius: Int,
+    horizontal: Boolean,
+) {
+    for (y in 0 until height) {
+        for (x in 0 until width) {
+            var red = 0
+            var green = 0
+            var blue = 0
+            var samples = 0
+            for (offset in -radius..radius) {
+                val sampleX = if (horizontal) (x + offset).coerceIn(0, width - 1) else x
+                val sampleY = if (horizontal) y else (y + offset).coerceIn(0, height - 1)
+                val color = source[sampleY * width + sampleX]
+                red += color shr 16 and 0xFF
+                green += color shr 8 and 0xFF
+                blue += color and 0xFF
+                samples += 1
+            }
+            destination[y * width + x] = (0xFF shl 24) or
+                ((red / samples) shl 16) or
+                ((green / samples) shl 8) or
+                (blue / samples)
+        }
+    }
 }

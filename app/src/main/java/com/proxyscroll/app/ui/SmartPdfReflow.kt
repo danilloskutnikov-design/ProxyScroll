@@ -19,8 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -37,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -45,8 +47,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.proxyscroll.app.ui.theme.ProxySurface
-import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -107,6 +107,7 @@ internal data class SmartPdfRegionImage(
 internal data class SmartPdfPageRender(
     val regions: List<SmartPdfRegionImage> = emptyList(),
     val analysis: PdfPageLayoutAnalysis? = null,
+    val backdrop: androidx.compose.ui.graphics.ImageBitmap? = null,
     val error: String? = null,
 )
 
@@ -147,6 +148,7 @@ internal fun SmartPdfReflowPage(
     page: Int,
     mode: PdfLayoutMode,
     readingProfile: PdfReadingProfile,
+    controlsVisible: Boolean,
     cache: SmartPdfReflowCache,
     isCurrent: Boolean,
     onInteractionChanged: (Boolean) -> Unit,
@@ -206,6 +208,12 @@ internal fun SmartPdfReflowPage(
             },
         contentAlignment = Alignment.Center,
     ) {
+        render.backdrop?.let { backdrop ->
+            PdfPageBackdrop(
+                image = backdrop,
+                readingProfile = readingProfile,
+            )
+        }
         when {
             render.error != null -> Column(
                 modifier = Modifier.padding(28.dp),
@@ -231,58 +239,29 @@ internal fun SmartPdfReflowPage(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
-                    start = 8.dp,
-                    end = 8.dp,
-                    top = 86.dp,
-                    bottom = 142.dp,
+                    start = 4.dp,
+                    end = 4.dp,
+                    top = if (controlsVisible) 86.dp else 8.dp,
+                    bottom = if (controlsVisible) 132.dp else 12.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                item {
-                    val analysis = render.analysis
-                    ProxySurface(
-                        modifier = Modifier.fillMaxWidth(),
-                        role = ProxySurfaceRole.OVERLAY,
-                        strong = false,
-                        interactive = false,
-                        deformContent = false,
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                            Text(
-                                text = if (analysis?.columnCount == 2 && mode == PdfLayoutMode.REFLOW) {
-                                    "Smart Reflow · 2 колонки"
-                                } else {
-                                    "Smart Crop · поля удалены"
-                                },
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                            Text(
-                                text = "Уверенность ${(analysis?.confidence?.times(100f) ?: 0f).roundToInt()}% · без OCR",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-
                 itemsIndexed(render.regions) { index, region ->
-                    ProxySurface(
-                        modifier = Modifier.fillMaxWidth(),
-                        role = ProxySurfaceRole.CARD,
-                        strong = true,
-                        interactive = false,
-                        deformContent = false,
-                    ) {
-                        Image(
-                            bitmap = region.image,
-                            contentDescription = "Страница ${page + 1}, фрагмент ${index + 1}",
-                            contentScale = ContentScale.FillWidth,
-                            colorFilter = pdfReadingColorFilter(readingProfile),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(region.aspectRatio),
-                        )
-                    }
+                    Image(
+                        bitmap = region.image,
+                        contentDescription = "Страница ${page + 1}, фрагмент ${index + 1}",
+                        contentScale = ContentScale.FillWidth,
+                        colorFilter = pdfReadingColorFilter(readingProfile),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(region.aspectRatio)
+                            .shadow(
+                                elevation = 10.dp,
+                                shape = RoundedCornerShape(3.dp),
+                                clip = false,
+                            )
+                            .clip(RoundedCornerShape(3.dp)),
+                    )
                 }
 
                 item { Spacer(Modifier.height(6.dp)) }
@@ -346,6 +325,7 @@ private fun renderSmartPdfPage(
                     SmartPdfPageRender(
                         regions = regionImages,
                         analysis = analysis.copy(readingRegions = chosenRegions),
+                        backdrop = createPdfBackdrop(bitmap),
                     )
                 }
             }
