@@ -83,9 +83,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
-import androidx.compose.ui.graphics.ContentScale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -149,9 +150,7 @@ internal fun ModernPdfReaderScreen(
                 message = documentInfo.error.orEmpty(),
                 onBack = onBack,
             )
-
             documentInfo.pageCount <= 0 -> CircularProgressIndicator()
-
             else -> ModernPdfReaderReady(
                 document = document,
                 pageCount = documentInfo.pageCount,
@@ -262,44 +261,37 @@ private fun ModernPdfReaderReady(
             PdfNavigationMode.CONTINUOUS -> continuousState.scrollToItem(currentPage)
         }
     }
-
     LaunchedEffect(layoutMode) {
         resetZoom()
         activeAtmosphere = renderCache.get(currentPage, layoutMode)?.atmosphere
     }
-
     LaunchedEffect(controlsVisible, menuExpanded, quoteDialogPage, isScrubbing) {
         if (controlsVisible && !menuExpanded && quoteDialogPage == null && !isScrubbing) {
             kotlinx.coroutines.delay(3200)
             controlsVisible = false
         }
     }
-
     LaunchedEffect(navigationMode, pagerState) {
         if (navigationMode != PdfNavigationMode.PAGED) return@LaunchedEffect
         snapshotFlow { pagerState.isScrollInProgress }
             .distinctUntilChanged()
             .collectLatest { navigationInteractionActive = it }
     }
-
     LaunchedEffect(navigationMode, continuousState) {
         if (navigationMode != PdfNavigationMode.CONTINUOUS) return@LaunchedEffect
         snapshotFlow { continuousState.isScrollInProgress }
             .distinctUntilChanged()
             .collectLatest { navigationInteractionActive = it }
     }
-
     LaunchedEffect(navigationInteractionActive, pageInteractionActive) {
         latestScrollQuietChanged(navigationInteractionActive || pageInteractionActive)
     }
-
     LaunchedEffect(navigationMode, pagerState, pageCount) {
         if (navigationMode != PdfNavigationMode.PAGED) return@LaunchedEffect
         snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
             .collectLatest { page -> currentPage = page.coerceIn(0, pageCount - 1) }
     }
-
     LaunchedEffect(navigationMode, continuousState, pageCount) {
         if (navigationMode != PdfNavigationMode.CONTINUOUS) return@LaunchedEffect
         snapshotFlow {
@@ -312,13 +304,11 @@ private fun ModernPdfReaderReady(
             .distinctUntilChanged()
             .collectLatest { page -> currentPage = page.coerceIn(0, pageCount - 1) }
     }
-
     LaunchedEffect(currentPage, pageCount) {
         if (!isScrubbing) scrubPage = currentPage.toFloat()
         onProgressChanged(currentPage, pageCount)
         renderCache.get(currentPage, layoutMode)?.atmosphere?.let { activeAtmosphere = it }
     }
-
     LaunchedEffect(currentPage, layoutMode, document.uri) {
         withContext(Dispatchers.IO) {
             listOf(currentPage - 1, currentPage, currentPage + 1)
@@ -335,7 +325,6 @@ private fun ModernPdfReaderReady(
         }
         renderCache.get(currentPage, layoutMode)?.atmosphere?.let { activeAtmosphere = it }
     }
-
     DisposableEffect(renderCache) {
         onDispose {
             renderCache.clear()
@@ -365,8 +354,7 @@ private fun ModernPdfReaderReady(
             readingProfile = readingProfile,
         )
 
-        // The atmosphere stays edge-to-edge, but actual paper lives in a safe viewport.
-        // This is the important split that prevents PDF content from sitting under status/nav bars.
+        // Background is edge-to-edge; paper is deliberately constrained to system-safe space.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -609,9 +597,7 @@ private fun ReaderSettingsMenu(
                 text = { Text(mode.label) },
                 leadingIcon = if (mode == layoutMode) {
                     { Icon(Icons.Default.Check, contentDescription = null) }
-                } else {
-                    null
-                },
+                } else null,
                 onClick = { onLayoutMode(mode) },
             )
         }
@@ -627,9 +613,7 @@ private fun ReaderSettingsMenu(
                 text = { Text(mode.label) },
                 leadingIcon = if (mode == navigationMode) {
                     { Icon(Icons.Default.Check, contentDescription = null) }
-                } else {
-                    null
-                },
+                } else null,
                 onClick = { onNavigationMode(mode) },
             )
         }
@@ -645,9 +629,7 @@ private fun ReaderSettingsMenu(
                 text = { Text(profile.label) },
                 leadingIcon = if (profile == readingProfile) {
                     { Icon(Icons.Default.Check, contentDescription = null) }
-                } else {
-                    null
-                },
+                } else null,
                 onClick = { onReadingProfile(profile) },
             )
         }
@@ -695,12 +677,12 @@ private fun PagedPdfPage(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onGloballyPositioned { viewportWidth = it.size.width.coerceAtLeast(1) }
             .pointerInput(page, mode, viewportWidth) {
                 detectTapGestures { position ->
                     onTap((position.x / viewportWidth.coerceAtLeast(1)).coerceIn(0f, 1f))
                 }
-            }
-            .onSizeChangedCompat { width -> viewportWidth = width },
+            },
         contentAlignment = Alignment.Center,
     ) {
         when {
@@ -909,12 +891,13 @@ private fun ZoomablePdfRegion(
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
                         var transformed = false
-                        do {
+                        while (true) {
                             val event = awaitPointerEvent()
                             val zoom = event.calculateZoom()
                             val pan = event.calculatePan()
                             val shouldTransform = event.changes.size > 1 || scale > 1.01f
                             if (shouldTransform) {
+                                if (!transformed) onInteractionChanged(true)
                                 transformed = true
                                 val nextScale = (scale * zoom).coerceIn(1f, 5f)
                                 val maxX = viewportWidth * (nextScale - 1f) * 0.5f
@@ -931,7 +914,8 @@ private fun ZoomablePdfRegion(
                                 event.changes.forEach { it.consume() }
                                 onScaleChanged(scale)
                             }
-                        } while (event.changes.any { it.pressed })
+                            if (event.changes.none { it.pressed }) break
+                        }
                         if (transformed) onInteractionChanged(false)
                     }
                 },
@@ -1128,11 +1112,3 @@ private fun readModernPdfDocumentInfo(
 }.getOrElse { error ->
     ModernPdfDocumentInfo(error = error.message ?: "Не удалось открыть документ")
 }
-
-/** Small compatibility helper keeps the reader independent of layout callback objects. */
-private fun Modifier.onSizeChangedCompat(onWidth: (Int) -> Unit): Modifier =
-    this.then(
-        Modifier.pointerInput(Unit) {
-            onWidth(size.width.coerceAtLeast(1))
-        },
-    )
