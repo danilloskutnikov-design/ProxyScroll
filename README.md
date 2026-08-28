@@ -1,6 +1,6 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes and reading app for Android. The current build is **0.22.0-alpha35**.
+ProxyScroll is an offline-first notes and reading app for Android. The current build is **0.23.0-alpha36**.
 
 ## Alpha features
 
@@ -14,7 +14,7 @@ ProxyScroll is an offline-first notes and reading app for Android. The current b
 - Three input-motion modes: Direct, Gentle, and Flowing
 - Search by title or body
 - Pin and delete notes
-- Liquid Glass material with translucent rims, refraction, and slow ambient light
+- Optical Glass material with screen-space transmission, magnification, blur, and a physical bevel
 - Royal Graphite material generated procedurally from cold sheen, layers, and micro-grooves
 - OldScroll material with ivory paper, directional fibres, warm dust, worn edges, and angular geometry
 - Ordered multi-selection with visible selection order, select-all, bulk pinning, colour, and Trash actions
@@ -39,7 +39,7 @@ ProxyScroll is an offline-first notes and reading app for Android. The current b
 - Separate content, vibrant inset, and navigation material layers
 - Refined Liquid Glass translucency with role-aware optical depth
 - Rebuilt Royal Graphite with cold wet sheen, sparse rain light, and no repetitive grid texture
-- Stained Liquid Glass with one continuous three-well color field shared by the whole screen
+- One continuous environmental light field shared by the background and every refractive glass surface
 - Aurora Opal, Coral Glacier, and Nordic Bloom palettes with persistent intensity controls
 - Graphite Oil optics with restrained steel, petroleum, and northern-green inclusions
 - Material depth and ambient-light motion presets with a real live preview
@@ -69,7 +69,7 @@ ProxyScroll is an offline-first notes and reading app for Android. The current b
 - Sidecar installer for signature-conflicted early Alpha installations, without deleting the existing app
 - Explicit settings z-order that keeps privacy fog below the sheet during live theme changes
 - Stable settings chrome while Shape Studio morphs only the live preview and target controls
-- Material-specific mechanics: elastic Liquid Glass, restrained Graphite, and stiff OldScroll paper
+- Material-specific mechanics: stable Optical Glass, restrained Graphite, and stiff OldScroll paper
 - Large mirrored optical-grain atlases whose repeat period exceeds an individual card
 - Chromatic micro-lenses with bright faces, tinted shadows, and sparse refractive halos
 - Low-cost optical motion trails that follow the shared material light without blurring text
@@ -122,6 +122,11 @@ ProxyScroll is an offline-first notes and reading app for Android. The current b
 - Progressive search, filters, and groups that stay out of the content plane until requested
 - Denser note cards, reading shelves, quote cards, and settings without removing their actions
 - A single-row theme picker and restrained material hierarchy with fewer nested surfaces
+- Screen-space backdrop reprojection that visibly breaks light landmarks at glass boundaries
+- Role-aware optics: thin cards, frosted inputs, a thick central lens, and privacy-glass overlays
+- Hardware background blur on Android 12+ with a low-cost refractive fallback for older devices
+- Double Fresnel bevels with restrained edge-only chromatic dispersion and contact shadows
+- Stable text and geometry while touch changes transmission, displacement, and specular light
 
 ## Storage and compatibility
 
@@ -131,7 +136,7 @@ The UI depends on the domain repository contract rather than its SharedPreferenc
 
 ## Build
 
-GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.22.0-alpha35-update.apk` to update the normal package while keeping local data. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.22.0-alpha35-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.22.0-alpha35-installers` artifact and support Android 8.0 or newer.
+GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.23.0-alpha36-update.apk` to update the normal package while keeping local data. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.23.0-alpha36-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.23.0-alpha36-installers` artifact and support Android 8.0 or newer.
 
 Alpha APKs use a repository-local debug-only signing key so later Alpha builds can update in place without erasing local notes. This key must never be used for a production release.
 

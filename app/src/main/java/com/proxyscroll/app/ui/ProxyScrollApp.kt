@@ -304,7 +304,11 @@ fun ProxyScrollApp(
     val settingsFogRadius by animateDpAsState(
         targetValue = if (
             !staticLiteLife && showSettings && !editorOpen && !showTrash
-        ) 4.dp else 0.dp,
+        ) {
+            if (selectedTheme == AppTheme.LIQUID_GLASS) 14.dp else 4.dp
+        } else {
+            0.dp
+        },
         animationSpec = tween(if (staticLiteLife) 1 else 360, easing = FastOutSlowInEasing),
         label = "settings-fog-radius",
     )
@@ -640,8 +644,9 @@ private fun Modifier.animatedClick(
     enabled: Boolean = true,
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
-    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
-    if (liteLife) {
+    val theme = LocalProxyVisualStyle.current.theme
+    val stableSurface = theme == AppTheme.LITE_LIFE || theme == AppTheme.LIQUID_GLASS
+    if (stableSurface) {
         return this.clickable(
             interactionSource = interactionSource,
             indication = null,
@@ -681,8 +686,9 @@ private fun Modifier.animatedCombinedClick(
     pressedScale: Float = 0.985f,
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
-    val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
-    if (liteLife) {
+    val theme = LocalProxyVisualStyle.current.theme
+    val stableSurface = theme == AppTheme.LITE_LIFE || theme == AppTheme.LIQUID_GLASS
+    if (stableSurface) {
         return this.combinedClickable(
             interactionSource = interactionSource,
             indication = null,
@@ -2447,19 +2453,13 @@ internal fun MainSectionBar(
     searchSelected: Boolean = false,
     onOpenSearch: () -> Unit = {},
 ) {
-    val dividerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
-            .drawBehind {
-                drawLine(
-                    color = dividerColor,
-                    start = Offset.Zero,
-                    end = Offset(size.width, 0f),
-                    strokeWidth = 1.dp.toPx(),
-                )
-            },
+    ProxySurface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RectangleShape,
+        role = ProxySurfaceRole.OVERLAY,
+        strong = true,
+        interactive = false,
+        deformContent = false,
     ) {
         Row(
             modifier = Modifier
@@ -5391,7 +5391,7 @@ private fun SettingsSheet(
     val sheetCorner = (LocalProxyShape.current.globalCornerDp + 8).coerceAtMost(32).dp
     val resolvedShape = interfaceShape.resolveFor(selectedTheme)
     val themeShapeLabel = when (selectedTheme) {
-        AppTheme.LIQUID_GLASS -> "Мягкая геометрия стекла"
+        AppTheme.LIQUID_GLASS -> "Литая оптическая кромка"
         AppTheme.ROYAL_GRAPHITE -> "Сдержанная геометрия графита"
         AppTheme.OLD_SCROLL -> "Твёрдый бумажный срез"
         AppTheme.LITE_LIFE -> "Прямоугольная статичная геометрия"
@@ -5534,7 +5534,7 @@ private fun SettingsSheet(
                         CompactThemeOption(
                             theme = theme,
                             title = when (theme) {
-                                AppTheme.LIQUID_GLASS -> "Liquid Glass"
+                                AppTheme.LIQUID_GLASS -> "Optical Glass"
                                 AppTheme.ROYAL_GRAPHITE -> "Royal Graphite"
                                 AppTheme.OLD_SCROLL -> "OldScroll"
                                 AppTheme.LITE_LIFE -> "LiteLife"
@@ -5549,6 +5549,7 @@ private fun SettingsSheet(
                 Spacer(Modifier.height(14.dp))
                 Text(
                     text = when (selectedTheme) {
+                        AppTheme.LIQUID_GLASS -> "Оптика стекла"
                         AppTheme.OLD_SCROLL -> "Характер бумаги"
                         AppTheme.LITE_LIFE -> "Лёгкий интерфейс"
                         AppTheme.CYBERPUNK -> "Протокол Night Signal"
@@ -5560,7 +5561,7 @@ private fun SettingsSheet(
                 Text(
                     text = when (selectedTheme) {
                         AppTheme.LIQUID_GLASS ->
-                            "Единое световое поле проходит через все поверхности"
+                            "Фон преломляется, увеличивается и смягчается внутри стекла"
                         AppTheme.ROYAL_GRAPHITE ->
                             "Graphite Oil — холодные цветные включения под мокрым камнем"
                         AppTheme.OLD_SCROLL ->
@@ -5602,7 +5603,14 @@ private fun SettingsSheet(
                 if (selectedTheme != AppTheme.LITE_LIFE) {
                     Spacer(Modifier.height(14.dp))
                     Row(Modifier.fillMaxWidth()) {
-                    Text("Интенсивность", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (selectedTheme == AppTheme.LIQUID_GLASS) {
+                            "Цвет окружения"
+                        } else {
+                            "Интенсивность"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                    )
                     Spacer(Modifier.weight(1f))
                     Text(
                         text = "${(stainSettings.intensity * 100).roundToInt()}%",
@@ -5619,7 +5627,14 @@ private fun SettingsSheet(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
-                Text("Глубина материала", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (selectedTheme == AppTheme.LIQUID_GLASS) {
+                        "Толщина стекла"
+                    } else {
+                        "Глубина материала"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 Spacer(Modifier.height(8.dp))
                     Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -5627,7 +5642,15 @@ private fun SettingsSheet(
                 ) {
                     MaterialDepth.entries.forEach { depth ->
                         MotionOption(
-                            label = depth.displayName,
+                            label = if (selectedTheme == AppTheme.LIQUID_GLASS) {
+                                when (depth) {
+                                    MaterialDepth.FLAT -> "Тонкое"
+                                    MaterialDepth.NATURAL -> "Литое"
+                                    MaterialDepth.DEEP -> "Толстое"
+                                }
+                            } else {
+                                depth.displayName
+                            },
                             selected = stainSettings.depth == depth,
                             onClick = {
                                 onStainSettingsChanged(stainSettings.copy(depth = depth))
@@ -5637,7 +5660,14 @@ private fun SettingsSheet(
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                Text("Дыхание света", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (selectedTheme == AppTheme.LIQUID_GLASS) {
+                        "Движение отражения"
+                    } else {
+                        "Дыхание света"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -5655,16 +5685,34 @@ private fun SettingsSheet(
                     }
                 }
                 Spacer(Modifier.height(14.dp))
-                Text("Пластика материала", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (selectedTheme == AppTheme.LIQUID_GLASS) {
+                        "Качество оптики"
+                    } else {
+                        "Пластика материала"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = when (stainSettings.motionQuality) {
-                        MaterialMotionQuality.AUTO ->
-                            "Авто учитывает производительность устройства"
-                        MaterialMotionQuality.FULL ->
-                            "Полная деформация, живые блики и мягкий оптический шлейф"
-                        MaterialMotionQuality.LITE ->
-                            "Меньше движения и слоёв для максимально ровного интерфейса"
+                    text = if (selectedTheme == AppTheme.LIQUID_GLASS) {
+                        when (stainSettings.motionQuality) {
+                            MaterialMotionQuality.AUTO ->
+                                "Аппаратное размытие включается с учётом устройства"
+                            MaterialMotionQuality.FULL ->
+                                "Полное преломление, мягкое размытие и живая кромка"
+                            MaterialMotionQuality.LITE ->
+                                "Преломление без дорогого размытия для ровной прокрутки"
+                        }
+                    } else {
+                        when (stainSettings.motionQuality) {
+                            MaterialMotionQuality.AUTO ->
+                                "Авто учитывает производительность устройства"
+                            MaterialMotionQuality.FULL ->
+                                "Полная деформация, живые блики и мягкий оптический шлейф"
+                            MaterialMotionQuality.LITE ->
+                                "Меньше движения и слоёв для максимально ровного интерфейса"
+                        }
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
