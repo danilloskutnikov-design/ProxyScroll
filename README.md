@@ -1,6 +1,6 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes app for Android. The current build is **0.15.0-alpha28**.
+ProxyScroll is an offline-first notes and reading app for Android. The current build is **0.20.0-alpha33**.
 
 ## Alpha features
 
@@ -106,16 +106,23 @@ ProxyScroll is an offline-first notes app for Android. The current build is **0.
 - Persistent start, centre, end, and justified note alignment across editor, reader, and cards
 - A dedicated Library tab with Android document-picker PDF import and persistent URI access
 - Local PDF page rendering, previous/next navigation, error recovery, and remembered reading progress
+- A tactile virtual bookshelf with dimensional shelf lighting, book spines, bookmarks, paper edges, and procedural cover materials
+- Editable display titles and authors while preserving the original imported filename for safe re-imports
+- Classic, cloth, paper, night, and minimal cover styles with persistent colour presets
+- Optional user-selected cover artwork with persistent Android document access
+- Local book quotes and reading notes linked to their source PDF and exact page
+- Quote creation directly from the PDF reader, plus editing and deletion from the Library
+- Continue-reading and shelf note counters, status filters, and searchable author metadata
 
 ## Storage and compatibility
 
-Notes remain local and offline. The Alpha stores plain searchable text plus formatting ranges through the `NotesRepository` contract. Notes created by earlier Alpha versions are migrated automatically with unformatted body text.
+Notes, library metadata, cover choices, reading progress, quotes, and book notes remain local and offline. The Alpha stores plain searchable text plus formatting ranges through the `NotesRepository` contract. Notes and PDF entries created by earlier Alpha versions are migrated automatically.
 
 The UI depends on the domain repository contract rather than its SharedPreferences implementation. A database, sync engine, encryption layer, or plugin-backed repository can replace it without changing the editor.
 
 ## Build
 
-GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.15.0-alpha28-update.apk` to update the normal package while keeping local notes. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.15.0-alpha28-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.15.0-alpha28-installers` artifact and support Android 8.0 or newer.
+GitHub Actions builds two verified APKs on every push to `main`. Use `ProxyScroll-0.20.0-alpha33-update.apk` to update the normal package while keeping local data. If Android reports a signature conflict from an early Alpha, install `ProxyScroll-0.20.0-alpha33-sidecar.apk` beside it instead. Both APKs are contained in the `ProxyScroll-0.20.0-alpha33-installers` artifact and support Android 8.0 or newer.
 
 Alpha APKs use a repository-local debug-only signing key so later Alpha builds can update in place without erasing local notes. This key must never be used for a production release.
 

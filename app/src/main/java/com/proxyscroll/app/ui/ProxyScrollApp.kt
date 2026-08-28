@@ -427,12 +427,29 @@ fun ProxyScrollApp(
                         openPdfDocument?.let { document ->
                             ModernPdfReaderScreen(
                                 document = document,
+                                quoteCount = libraryState.quotes.count {
+                                    it.documentId == document.id
+                                },
                                 onBack = {
                                     pdfReaderOpen = false
                                     openPdfDocument = null
                                 },
                                 onProgressChanged = { page, pageCount ->
                                     libraryViewModel.updateProgress(document, page, pageCount)
+                                },
+                                onSaveQuote = { page, excerpt, note ->
+                                    libraryViewModel.addQuote(
+                                        document = document,
+                                        page = page,
+                                        excerpt = excerpt,
+                                        note = note,
+                                    )
+                                    appScope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            message = "Цитата сохранена · стр. ${page + 1}",
+                                            duration = SnackbarDuration.Short,
+                                        )
+                                    }
                                 },
                                 onScrollQuietChanged = { scrollingQuiet = it },
                             )
@@ -446,7 +463,7 @@ fun ProxyScrollApp(
                             onEmptyTrash = viewModel::emptyTrash,
                         )
                     } else if (destination == ProxyDestination.LIBRARY) {
-                        LibraryScreen(
+                        TactileLibraryScreen(
                             state = libraryState,
                             onOpenNotes = { showLibrary = false },
                             onOpenSettings = { showSettings = true },
@@ -461,7 +478,9 @@ fun ProxyScrollApp(
                                 openPdfDocument = document
                                 pdfReaderOpen = true
                             },
-                            onStatusChange = libraryViewModel::updateStatus,
+                            onEditDocument = libraryViewModel::updateAppearance,
+                            onUpdateQuote = libraryViewModel::updateQuote,
+                            onDeleteQuote = libraryViewModel::deleteQuote,
                             onDelete = libraryViewModel::delete,
                         )
                     } else {
@@ -2441,7 +2460,7 @@ private fun NoteFlagSwatch(
 }
 
 @Composable
-private fun MainSectionBar(
+internal fun MainSectionBar(
     notesSelected: Boolean,
     onOpenNotes: () -> Unit,
     onOpenLibrary: () -> Unit,
