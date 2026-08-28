@@ -107,7 +107,7 @@ private data class ModernPdfPageRender(
     val error: String? = null,
 )
 
-private enum class PdfReadingProfile(val label: String) {
+internal enum class PdfReadingProfile(val label: String) {
     ORIGINAL("Оригинал"),
     SEPIA("Сепия"),
     NIGHT("Ночь"),
@@ -115,10 +115,6 @@ private enum class PdfReadingProfile(val label: String) {
     CONTRAST("Контраст"),
 }
 
-/**
- * Small LRU cache. Rendering deliberately happens outside the monitor so a slow
- * prefetch cannot block the page that the user has just swiped to.
- */
 private class ModernPdfBitmapCache(
     private val maxEntries: Int = 7,
 ) {
@@ -157,16 +153,16 @@ internal fun ModernPdfReaderScreen(
             readModernPdfDocumentInfo(context, Uri.parse(document.uri))
         }
     }
-    val currentScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
+    val latestScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
 
     DisposableEffect(Unit) {
-        onDispose { currentScrollQuietChanged(false) }
+        onDispose { latestScrollQuietChanged(false) }
     }
     BackHandler(onBack = onBack)
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when {
-            documentInfo.error != null -> ModernPdfReaderErrorState(
+            documentInfo.error != null -> PdfReaderError(
                 message = documentInfo.error.orEmpty(),
                 onBack = onBack,
             )
@@ -183,7 +179,7 @@ internal fun ModernPdfReaderScreen(
 }
 
 @Composable
-private fun ModernPdfReaderErrorState(
+private fun PdfReaderError(
     message: String,
     onBack: () -> Unit,
 ) {
@@ -232,11 +228,12 @@ private fun ModernPdfReaderReady(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val cache = remember(document.uri) { ModernPdfBitmapCache(maxEntries = 7) }
+    val bitmapCache = remember(document.uri) { ModernPdfBitmapCache(maxEntries = 7) }
+    val reflowCache = remember(document.uri) { SmartPdfReflowCache(maxEntries = 3) }
     val initialPage = document.lastPage.coerceIn(0, pageCount - 1)
     val pagerState = rememberPagerState(initialPage = initialPage) { pageCount }
+
     var controlsVisible by remember(document.id) { mutableStateOf(true) }
-    var gestureHintVisible by remember(document.id) { mutableStateOf(true) }
     var resetZoomToken by remember(document.id) { mutableIntStateOf(0) }
     var currentScale by remember(document.id) { mutableFloatStateOf(1f) }
     var pagerInteractionActive by remember { mutableStateOf(false) }
@@ -245,11 +242,8 @@ private fun ModernPdfReaderReady(
     var scrubPage by remember(document.id) { mutableFloatStateOf(initialPage.toFloat()) }
     var isScrubbing by remember { mutableStateOf(false) }
     var readingProfile by remember(document.id) { mutableStateOf(PdfReadingProfile.ORIGINAL) }
-    val currentScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
-
-    fun markInteraction() {
-        gestureHintVisible = false
-    }
+    var layoutMode by remember(document.id) { mutableStateOf(PdfLayoutMode.ORIGINAL) }
+    val latestScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
 
     fun resetZoom() {
         resetZoomToken += 1
@@ -257,23 +251,22 @@ private fun ModernPdfReaderReady(
     }
 
     fun goToPage(page: Int) {
-        markInteraction()
         resetZoom()
         val target = page.coerceIn(0, pageCount - 1)
         scope.launch { pagerState.animateScrollToPage(target) }
     }
 
+    LaunchedEffect(layoutMode) {
+        resetZoom()
+        currentScale = 1f
+    }
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.isScrollInProgress }
             .distinctUntilChanged()
-            .collectLatest { moving ->
-                pagerInteractionActive = moving
-                if (moving) markInteraction()
-            }
+            .collectLatest { moving -> pagerInteractionActive = moving }
     }
     LaunchedEffect(pagerInteractionActive, pageInteractionActive) {
-        if (pagerInteractionActive || pageInteractionActive) markInteraction()
-        currentScrollQuietChanged(pagerInteractionActive || pageInteractionActive)
+        latestScrollQuietChanged(pagerInteractionActive || pageInteractionActive)
     }
     LaunchedEffect(pagerState, pageCount) {
         snapshotFlow { pagerState.settledPage }
@@ -296,7 +289,7 @@ private fun ModernPdfReaderReady(
                                 context = context,
                                 uri = Uri.parse(document.uri),
                                 requestedPage = adjacentPage,
-                                cache = cache,
+                                cache = bitmapCache,
                             )
                         }
                 }
@@ -305,10 +298,11 @@ private fun ModernPdfReaderReady(
     LaunchedEffect(pagerState.currentPage, isScrubbing) {
         if (!isScrubbing) scrubPage = pagerState.currentPage.toFloat()
     }
-    DisposableEffect(cache) {
+    DisposableEffect(bitmapCache, reflowCache) {
         onDispose {
-            cache.clear()
-            currentScrollQuietChanged(false)
+            bitmapCache.clear()
+            reflowCache.clear()
+            latestScrollQuietChanged(false)
         }
     }
 
@@ -320,7 +314,7 @@ private fun ModernPdfReaderReady(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = currentScale <= 1.01f,
+            userScrollEnabled = layoutMode != PdfLayoutMode.ORIGINAL || currentScale <= 1.01f,
             beyondViewportPageCount = 1,
             pageSpacing = 12.dp,
         ) { page ->
@@ -330,8 +324,10 @@ private fun ModernPdfReaderReady(
             ModernPdfReaderPage(
                 document = document,
                 page = page,
-                cache = cache,
+                bitmapCache = bitmapCache,
+                reflowCache = reflowCache,
                 readingProfile = readingProfile,
+                layoutMode = layoutMode,
                 isCurrent = page == pagerState.currentPage,
                 resetZoomToken = resetZoomToken,
                 onScaleChanged = { scale ->
@@ -340,10 +336,7 @@ private fun ModernPdfReaderReady(
                 onInteractionChanged = { active ->
                     if (page == pagerState.currentPage) pageInteractionActive = active
                 },
-                onCenterTap = {
-                    markInteraction()
-                    controlsVisible = !controlsVisible
-                },
+                onCenterTap = { controlsVisible = !controlsVisible },
                 onPreviousPage = {
                     if (pagerState.currentPage > 0) goToPage(pagerState.currentPage - 1)
                 },
@@ -410,8 +403,14 @@ private fun ModernPdfReaderReady(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            "${pagerState.currentPage + 1} / $pageCount · " +
-                                "${(currentScale * 100).roundToInt()}% · ${readingProfile.label}",
+                            buildString {
+                                append("${pagerState.currentPage + 1} / $pageCount · ")
+                                if (layoutMode == PdfLayoutMode.ORIGINAL) {
+                                    append("${(currentScale * 100).roundToInt()}% · ")
+                                }
+                                append(layoutMode.label)
+                                append(" · ${readingProfile.label}")
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -419,11 +418,8 @@ private fun ModernPdfReaderReady(
                         )
                     }
                     IconButton(
-                        enabled = currentScale > 1.01f,
-                        onClick = {
-                            markInteraction()
-                            resetZoom()
-                        },
+                        enabled = layoutMode == PdfLayoutMode.ORIGINAL && currentScale > 1.01f,
+                        onClick = { resetZoom() },
                     ) {
                         Icon(Icons.Default.FormatSize, contentDescription = "Вернуть масштаб")
                     }
@@ -449,27 +445,41 @@ private fun ModernPdfReaderReady(
                                     goToPage(pageCount - 1)
                                 },
                             )
-                            DropdownMenuItem(
-                                text = { Text("Вернуть масштаб 100%") },
-                                onClick = {
-                                    menuExpanded = false
-                                    markInteraction()
-                                    resetZoom()
-                                },
-                            )
                             HorizontalDivider()
+                            Text(
+                                "Режим страницы",
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            PdfLayoutMode.entries.forEach { mode ->
+                                DropdownMenuItem(
+                                    text = { Text(mode.label) },
+                                    trailingIcon = if (mode == layoutMode) {
+                                        { Icon(Icons.Default.Check, contentDescription = "Выбрано") }
+                                    } else null,
+                                    onClick = {
+                                        layoutMode = mode
+                                        menuExpanded = false
+                                    },
+                                )
+                            }
+                            HorizontalDivider()
+                            Text(
+                                "Цвет чтения",
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
                             PdfReadingProfile.entries.forEach { profile ->
                                 DropdownMenuItem(
                                     text = { Text(profile.label) },
                                     trailingIcon = if (profile == readingProfile) {
                                         { Icon(Icons.Default.Check, contentDescription = "Выбрано") }
-                                    } else {
-                                        null
-                                    },
+                                    } else null,
                                     onClick = {
                                         readingProfile = profile
                                         menuExpanded = false
-                                        markInteraction()
                                     },
                                 )
                             }
@@ -507,10 +517,7 @@ private fun ModernPdfReaderReady(
                             enabled = pagerState.currentPage > 0,
                             onClick = { goToPage(pagerState.currentPage - 1) },
                         ) {
-                            Icon(
-                                Icons.Default.NavigateBefore,
-                                contentDescription = "Предыдущая страница",
-                            )
+                            Icon(Icons.Default.NavigateBefore, contentDescription = "Предыдущая страница")
                         }
                         Text(
                             "Страница ${(if (isScrubbing) scrubPage else pagerState.currentPage.toFloat()).roundToInt() + 1}",
@@ -520,16 +527,12 @@ private fun ModernPdfReaderReady(
                             enabled = pagerState.currentPage < pageCount - 1,
                             onClick = { goToPage(pagerState.currentPage + 1) },
                         ) {
-                            Icon(
-                                Icons.Default.NavigateNext,
-                                contentDescription = "Следующая страница",
-                            )
+                            Icon(Icons.Default.NavigateNext, contentDescription = "Следующая страница")
                         }
                     }
                     Slider(
                         value = if (pageCount > 1) scrubPage else 0f,
                         onValueChange = { value ->
-                            markInteraction()
                             isScrubbing = true
                             scrubPage = value.roundToInt().toFloat()
                         },
@@ -539,10 +542,11 @@ private fun ModernPdfReaderReady(
                             goToPage(target)
                         },
                         valueRange = 0f..(pageCount - 1).coerceAtLeast(1).toFloat(),
-                        enabled = pageCount > 1 && currentScale <= 1.01f,
+                        enabled = pageCount > 1 &&
+                            (layoutMode != PdfLayoutMode.ORIGINAL || currentScale <= 1.01f),
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    if (currentScale > 1.01f) {
+                    if (layoutMode == PdfLayoutMode.ORIGINAL && currentScale > 1.01f) {
                         Text(
                             "Навигация по страницам заблокирована во время увеличения",
                             style = MaterialTheme.typography.labelSmall,
@@ -553,30 +557,6 @@ private fun ModernPdfReaderReady(
                 }
             }
         }
-
-        AnimatedVisibility(
-            visible = gestureHintVisible,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = if (controlsVisible) 132.dp else 22.dp)
-                .zIndex(4f),
-            enter = fadeIn(tween(220)),
-            exit = fadeOut(tween(220)),
-        ) {
-            ProxySurface(
-                role = ProxySurfaceRole.OVERLAY,
-                strong = true,
-                interactive = false,
-                deformContent = false,
-            ) {
-                Text(
-                    "Свайп — страница · щипок — масштаб · двойной тап",
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
-        }
     }
 }
 
@@ -584,8 +564,10 @@ private fun ModernPdfReaderReady(
 private fun ModernPdfReaderPage(
     document: LibraryDocument,
     page: Int,
-    cache: ModernPdfBitmapCache,
+    bitmapCache: ModernPdfBitmapCache,
+    reflowCache: SmartPdfReflowCache,
     readingProfile: PdfReadingProfile,
+    layoutMode: PdfLayoutMode,
     isCurrent: Boolean,
     resetZoomToken: Int,
     onScaleChanged: (Float) -> Unit,
@@ -595,8 +577,28 @@ private fun ModernPdfReaderPage(
     onNextPage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (layoutMode != PdfLayoutMode.ORIGINAL) {
+        LaunchedEffect(isCurrent, layoutMode) {
+            if (isCurrent) onScaleChanged(1f)
+        }
+        SmartPdfReflowPage(
+            documentUri = document.uri,
+            page = page,
+            mode = layoutMode,
+            readingProfile = readingProfile,
+            cache = reflowCache,
+            isCurrent = isCurrent,
+            onInteractionChanged = onInteractionChanged,
+            onCenterTap = onCenterTap,
+            onPreviousPage = onPreviousPage,
+            onNextPage = onNextPage,
+            modifier = modifier,
+        )
+        return
+    }
+
     val context = LocalContext.current
-    val cachedImage = remember(document.uri, page) { cache.get(page) }
+    val cachedImage = remember(document.uri, page) { bitmapCache.get(page) }
     val render by produceState(
         initialValue = ModernPdfPageRender(image = cachedImage),
         key1 = document.uri,
@@ -608,7 +610,7 @@ private fun ModernPdfReaderPage(
                     context = context,
                     uri = Uri.parse(document.uri),
                     requestedPage = page,
-                    cache = cache,
+                    cache = bitmapCache,
                 )
             }
         }
@@ -634,7 +636,7 @@ private fun ModernPdfReaderPage(
                 )
             }
             render.image == null -> CircularProgressIndicator()
-            else -> ModernZoomablePdfPage(
+            else -> ZoomablePdfPage(
                 image = render.image ?: return@Box,
                 page = page,
                 readingProfile = readingProfile,
@@ -651,7 +653,7 @@ private fun ModernPdfReaderPage(
 }
 
 @Composable
-private fun ModernZoomablePdfPage(
+private fun ZoomablePdfPage(
     image: ImageBitmap,
     page: Int,
     readingProfile: PdfReadingProfile,
@@ -741,9 +743,7 @@ private fun ModernZoomablePdfPage(
     LaunchedEffect(transforming, isCurrent) {
         onInteractionChanged(isCurrent && transforming)
     }
-    LaunchedEffect(viewportWidth, viewportHeight) {
-        clampOffsets()
-    }
+    LaunchedEffect(viewportWidth, viewportHeight) { clampOffsets() }
     DisposableEffect(isCurrent) {
         onDispose {
             if (isCurrent) onInteractionChanged(false)
@@ -789,11 +789,7 @@ private fun ModernZoomablePdfPage(
                             zoomAnimationJob?.cancel()
                             transformedThisGesture = true
                             transforming = true
-                            val zoomChange = if (pressedPointers >= 2) {
-                                event.calculateZoom()
-                            } else {
-                                1f
-                            }
+                            val zoomChange = if (pressedPointers >= 2) event.calculateZoom() else 1f
                             val panChange = event.calculatePan()
                             val newScale = (scale * zoomChange).coerceIn(1f, 4f)
                             val (maxX, maxY) = panBounds(newScale)
@@ -852,7 +848,7 @@ private fun ModernZoomablePdfPage(
     }
 }
 
-private fun pdfReadingColorFilter(profile: PdfReadingProfile): ColorFilter? = when (profile) {
+internal fun pdfReadingColorFilter(profile: PdfReadingProfile): ColorFilter? = when (profile) {
     PdfReadingProfile.ORIGINAL -> null
     PdfReadingProfile.SEPIA -> ColorFilter.colorMatrix(
         ColorMatrix(
