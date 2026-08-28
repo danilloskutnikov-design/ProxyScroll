@@ -71,6 +71,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -158,6 +159,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -5405,6 +5407,7 @@ private fun SettingsSheet(
         AppTheme.ROYAL_GRAPHITE -> "Сдержанная геометрия графита"
         AppTheme.OLD_SCROLL -> "Твёрдый бумажный срез"
         AppTheme.LITE_LIFE -> "Прямоугольная статичная геометрия"
+        AppTheme.CYBERPUNK -> "Асимметричные техно-срезы"
     }
     val dismissInteraction = remember { MutableInteractionSource() }
     BackHandler(onBack = onDismiss)
@@ -5425,10 +5428,19 @@ private fun SettingsSheet(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .fillMaxHeight(0.94f),
-            shape = RoundedCornerShape(
-                topStart = sheetCorner,
-                topEnd = sheetCorner,
-            ),
+            shape = if (selectedTheme == AppTheme.CYBERPUNK) {
+                CutCornerShape(
+                    topStart = sheetCorner,
+                    topEnd = 0.dp,
+                    bottomEnd = 0.dp,
+                    bottomStart = 0.dp,
+                )
+            } else {
+                RoundedCornerShape(
+                    topStart = sheetCorner,
+                    topEnd = sheetCorner,
+                )
+            },
             role = ProxySurfaceRole.OVERLAY,
             strong = true,
             active = false,
@@ -5445,6 +5457,7 @@ private fun SettingsSheet(
                                 AppTheme.ROYAL_GRAPHITE -> 0.86f
                                 AppTheme.OLD_SCROLL -> 0.88f
                                 AppTheme.LITE_LIFE -> 0.98f
+                                AppTheme.CYBERPUNK -> 0.94f
                             },
                         ),
                     )
@@ -5562,11 +5575,20 @@ private fun SettingsSheet(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                Spacer(Modifier.height(8.dp))
+                CompactThemeOption(
+                    theme = AppTheme.CYBERPUNK,
+                    title = "Cyberpunk",
+                    selected = selectedTheme == AppTheme.CYBERPUNK,
+                    onClick = { onThemeSelected(AppTheme.CYBERPUNK) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Spacer(Modifier.height(22.dp))
                 Text(
                     text = when (selectedTheme) {
                         AppTheme.OLD_SCROLL -> "Характер бумаги"
                         AppTheme.LITE_LIFE -> "Лёгкий интерфейс"
+                        AppTheme.CYBERPUNK -> "Протокол Night Signal"
                         else -> "Цвет внутри материала"
                     },
                     style = MaterialTheme.typography.titleLarge,
@@ -5582,6 +5604,8 @@ private fun SettingsSheet(
                             "Слоновая кость · старые волокна · тёплая пыль и потемневший край"
                         AppTheme.LITE_LIFE ->
                             "Тихий контраст · чистые плоскости · минимум оптической нагрузки"
+                        AppTheme.CYBERPUNK ->
+                            "Сигнальный жёлтый · аварийный красный · RGB-разрывы и техно-трассы"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -5607,6 +5631,8 @@ private fun SettingsSheet(
                     GraphiteOilBadge()
                 } else if (selectedTheme == AppTheme.OLD_SCROLL) {
                     OldScrollBadge()
+                } else if (selectedTheme == AppTheme.CYBERPUNK) {
+                    CyberpunkBadge()
                 } else {
                     LiteLifeBadge()
                 }
@@ -6296,6 +6322,44 @@ private fun OldScrollBadge() {
 }
 
 @Composable
+private fun CyberpunkBadge() {
+    ProxyInsetSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(72.dp),
+        role = ProxySurfaceRole.CARD,
+        selected = true,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ThemeSwatch(
+                theme = AppTheme.CYBERPUNK,
+                modifier = Modifier.size(44.dp),
+            )
+            Column(Modifier.weight(1f)) {
+                Text("NIGHT//SIGNAL", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "Жёлтый сигнал · красная тревога · RGB glitch",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.Default.CheckCircle,
+                contentDescription = "Активный киберпанк-протокол",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun LiteLifeBadge() {
     ProxyInsetSurface(
         modifier = Modifier
@@ -6672,6 +6736,12 @@ private fun ThemeSwatch(
     val shape = when (theme) {
         AppTheme.OLD_SCROLL -> RoundedCornerShape(6.dp)
         AppTheme.LITE_LIFE -> RoundedCornerShape(0.dp)
+        AppTheme.CYBERPUNK -> CutCornerShape(
+            topStart = 0.dp,
+            topEnd = 11.dp,
+            bottomEnd = 0.dp,
+            bottomStart = 7.dp,
+        )
         else -> RoundedCornerShape(18.dp)
     }
     val stainSettings = LocalStainSettings.current
@@ -6791,6 +6861,43 @@ private fun ThemeSwatch(
                     color = Color(0xFF3B8CFF),
                     topLeft = Offset(size.width * 0.10f, size.height * 0.18f),
                     size = Size(size.width * 0.08f, size.height * 0.64f),
+                )
+            }
+            AppTheme.CYBERPUNK -> {
+                drawRect(color = Color(0xFF08090A))
+                val signal = Path().apply {
+                    moveTo(0f, 0f)
+                    lineTo(size.width * 0.72f, 0f)
+                    lineTo(size.width * 0.58f, size.height * 0.27f)
+                    lineTo(size.width * 0.24f, size.height * 0.27f)
+                    lineTo(size.width * 0.18f, size.height * 0.72f)
+                    lineTo(0f, size.height * 0.86f)
+                    close()
+                }
+                drawPath(path = signal, color = Color(0xFFF4E900))
+                drawRect(
+                    color = Color(0xFFFF3B30),
+                    topLeft = Offset(size.width * 0.34f, size.height * 0.48f),
+                    size = Size(size.width * 0.58f, size.height * 0.075f),
+                )
+                drawRect(
+                    color = Color(0xFF00E7FF),
+                    topLeft = Offset(size.width * 0.44f, size.height * 0.60f),
+                    size = Size(size.width * 0.42f, size.height * 0.045f),
+                )
+                repeat(3) { index ->
+                    val x = size.width * (0.55f + index * 0.12f)
+                    drawLine(
+                        color = Color(0xFFF4E900).copy(alpha = 0.72f),
+                        start = Offset(x, size.height * 0.72f),
+                        end = Offset(x, size.height * 0.94f),
+                        strokeWidth = 1.2f,
+                    )
+                }
+                drawCircle(
+                    color = Color(0xFFFF3B30),
+                    radius = size.width * 0.045f,
+                    center = Offset(size.width * 0.83f, size.height * 0.83f),
                 )
             }
         }

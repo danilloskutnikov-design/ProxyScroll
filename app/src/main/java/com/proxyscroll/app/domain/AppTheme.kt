@@ -5,6 +5,7 @@ enum class AppTheme(val storageKey: String) {
     ROYAL_GRAPHITE("royal_graphite"),
     OLD_SCROLL("old_scroll"),
     LITE_LIFE("lite_life"),
+    CYBERPUNK("cyberpunk"),
     ;
 
     companion object {

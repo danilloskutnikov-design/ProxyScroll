@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -49,11 +50,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shader
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -151,6 +154,29 @@ private val LiteLifeColors = darkColorScheme(
     error = Color(0xFFFF6B74),
 )
 
+private val CyberpunkColors = darkColorScheme(
+    primary = Color(0xFFF4E900),
+    onPrimary = Color(0xFF08090A),
+    primaryContainer = Color(0xFF4A4500),
+    onPrimaryContainer = Color(0xFFFFF45A),
+    secondary = Color(0xFFFF3B30),
+    onSecondary = Color(0xFF120200),
+    secondaryContainer = Color(0xFF64120D),
+    onSecondaryContainer = Color(0xFFFFDAD5),
+    tertiary = Color(0xFF00E7FF),
+    onTertiary = Color(0xFF001F24),
+    tertiaryContainer = Color(0xFF004E58),
+    onTertiaryContainer = Color(0xFF8EF2FF),
+    background = Color(0xFF070809),
+    onBackground = Color(0xFFF8F6E8),
+    surface = Color(0xFF101113),
+    onSurface = Color(0xFFF8F6E8),
+    surfaceVariant = Color(0xFF1C1C17),
+    onSurfaceVariant = Color(0xFFC9C7B6),
+    outline = Color(0xFF777566),
+    error = Color(0xFFFF453A),
+)
+
 data class ProxyVisualStyle(
     val theme: AppTheme,
     val materialTop: Color,
@@ -221,6 +247,20 @@ private val LiteLifeVisualStyle = ProxyVisualStyle(
     scrim = Color(0xFF101115),
 )
 
+private val CyberpunkVisualStyle = ProxyVisualStyle(
+    theme = AppTheme.CYBERPUNK,
+    materialTop = Color(0xFF1B1C18).copy(alpha = 0.96f),
+    materialMiddle = Color(0xFF0D0E10).copy(alpha = 0.98f),
+    materialBottom = Color(0xFF050607).copy(alpha = 0.99f),
+    strongTop = Color(0xFF2D2B0A).copy(alpha = 0.98f),
+    strongBottom = Color(0xFF0A0B0C).copy(alpha = 0.99f),
+    rimLight = Color(0xFFF4E900).copy(alpha = 0.92f),
+    rimShade = Color(0xFFFF3B30).copy(alpha = 0.72f),
+    specular = Color(0xFFFFF56A).copy(alpha = 0.22f),
+    shadow = Color.Black.copy(alpha = 0.82f),
+    scrim = Color(0xFF050607).copy(alpha = 0.78f),
+)
+
 val LocalProxyVisualStyle = staticCompositionLocalOf { LiquidVisualStyle }
 val LocalProxyShape = staticCompositionLocalOf { InterfaceShape() }
 val LocalStainSettings = staticCompositionLocalOf { StainSettings() }
@@ -279,6 +319,14 @@ private val LiteLifeMaterialColors = StainPaletteColors(
     tertiary = Color(0xFF7D86A8),
     neutral = Color(0xFF111217),
     caustic = Color(0xFFDCEBFF),
+)
+
+private val CyberpunkMaterialColors = StainPaletteColors(
+    primary = Color(0xFFF4E900),
+    secondary = Color(0xFFFF3B30),
+    tertiary = Color(0xFF00E7FF),
+    neutral = Color(0xFF08090A),
+    caustic = Color(0xFFFFF8A8),
 )
 
 val LocalStainPaletteColors = staticCompositionLocalOf { AuroraOpalColors }
@@ -503,6 +551,7 @@ fun ProxyScrollTheme(
         AppTheme.ROYAL_GRAPHITE -> RoyalGraphiteColors
         AppTheme.OLD_SCROLL -> OldScrollColors
         AppTheme.LITE_LIFE -> LiteLifeColors
+        AppTheme.CYBERPUNK -> CyberpunkColors
     }
     val normalizedStainSettings = stainSettings.normalized()
     val context = LocalContext.current
@@ -599,6 +648,7 @@ fun ProxyScrollTheme(
             AppTheme.ROYAL_GRAPHITE -> 1f
             AppTheme.OLD_SCROLL -> 0.38f
             AppTheme.LITE_LIFE -> 0.72f
+            AppTheme.CYBERPUNK -> 1f
     }
     val typographyProgress = if (selectedTheme == AppTheme.LITE_LIFE) {
         targetTypographyProgress
@@ -646,7 +696,8 @@ fun ProxyScrollTheme(
             val window = (view.context as? Activity)?.window ?: return@SideEffect
             val controller = WindowCompat.getInsetsController(window, view)
             val lightIcons = selectedTheme != AppTheme.ROYAL_GRAPHITE &&
-                selectedTheme != AppTheme.LITE_LIFE
+                selectedTheme != AppTheme.LITE_LIFE &&
+                selectedTheme != AppTheme.CYBERPUNK
             controller.isAppearanceLightStatusBars = lightIcons
             controller.isAppearanceLightNavigationBars = lightIcons
         }
@@ -677,6 +728,7 @@ private fun paletteFor(theme: AppTheme, palette: StainPalette): StainPaletteColo
     if (theme == AppTheme.ROYAL_GRAPHITE) return GraphiteOilColors
     if (theme == AppTheme.OLD_SCROLL) return OldScrollMaterialColors
     if (theme == AppTheme.LITE_LIFE) return LiteLifeMaterialColors
+    if (theme == AppTheme.CYBERPUNK) return CyberpunkMaterialColors
     return when (palette) {
         StainPalette.AURORA_OPAL -> AuroraOpalColors
         StainPalette.CORAL_GLACIER -> CoralGlacierColors
@@ -779,6 +831,7 @@ private fun animateVisualStyle(theme: AppTheme): ProxyVisualStyle {
         AppTheme.ROYAL_GRAPHITE -> GraphiteVisualStyle
         AppTheme.OLD_SCROLL -> OldScrollVisualStyle
         AppTheme.LITE_LIFE -> LiteLifeVisualStyle
+        AppTheme.CYBERPUNK -> CyberpunkVisualStyle
     }
 
     @Composable
@@ -1074,6 +1127,153 @@ private fun MaterialBackground(
                     ),
                 )
             }
+            AppTheme.CYBERPUNK -> {
+                val signalYellow = Color(0xFFF4E900)
+                val emergencyRed = Color(0xFFFF3B30)
+                val splitCyan = Color(0xFF00E7FF)
+                val glitchPulse = abs(
+                    sin((activeDrift * 31f + 1.37f).toDouble()),
+                ).toFloat()
+
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF11120F),
+                            Color(0xFF070809),
+                            Color(0xFF030405),
+                        ),
+                    ),
+                )
+
+                // Asymmetric signal panels echo industrial circuit boards while
+                // leaving the central reading column calm and high-contrast.
+                val upperSignal = Path().apply {
+                    moveTo(0f, 0f)
+                    lineTo(size.width * 0.43f, 0f)
+                    lineTo(size.width * 0.35f, size.height * 0.055f)
+                    lineTo(size.width * 0.25f, size.height * 0.055f)
+                    lineTo(size.width * 0.19f, size.height * 0.11f)
+                    lineTo(size.width * 0.06f, size.height * 0.11f)
+                    lineTo(0f, size.height * 0.15f)
+                    close()
+                }
+                drawPath(
+                    path = upperSignal,
+                    color = signalYellow.copy(alpha = (0.82f * stain).coerceAtMost(0.96f)),
+                )
+                val rightSignal = Path().apply {
+                    moveTo(size.width, size.height * 0.14f)
+                    lineTo(size.width * 0.91f, size.height * 0.18f)
+                    lineTo(size.width * 0.91f, size.height * 0.36f)
+                    lineTo(size.width * 0.84f, size.height * 0.40f)
+                    lineTo(size.width * 0.84f, size.height * 0.58f)
+                    lineTo(size.width * 0.92f, size.height * 0.62f)
+                    lineTo(size.width * 0.92f, size.height * 0.82f)
+                    lineTo(size.width, size.height * 0.88f)
+                    close()
+                }
+                drawPath(
+                    path = rightSignal,
+                    color = signalYellow.copy(alpha = (0.17f + 0.17f * stain)),
+                )
+                val lowerSignal = Path().apply {
+                    moveTo(0f, size.height * 0.78f)
+                    lineTo(size.width * 0.07f, size.height * 0.75f)
+                    lineTo(size.width * 0.17f, size.height * 0.75f)
+                    lineTo(size.width * 0.22f, size.height * 0.81f)
+                    lineTo(size.width * 0.38f, size.height * 0.81f)
+                    lineTo(size.width * 0.46f, size.height)
+                    lineTo(0f, size.height)
+                    close()
+                }
+                drawPath(
+                    path = lowerSignal,
+                    color = signalYellow.copy(alpha = (0.10f + 0.08f * stain)),
+                )
+
+                // Sparse circuit traces and contact points are intentionally
+                // concentrated at the edges so long-form text never glitches.
+                val circuitStroke = 1.05.dp.toPx()
+                repeat(4) { index ->
+                    val y = size.height * (0.19f + index * 0.115f)
+                    val xEnd = size.width * (0.10f + (index % 2) * 0.045f)
+                    val trace = Path().apply {
+                        moveTo(0f, y)
+                        lineTo(xEnd * 0.42f, y)
+                        lineTo(xEnd * 0.62f, y + 9.dp.toPx())
+                        lineTo(xEnd, y + 9.dp.toPx())
+                    }
+                    drawPath(
+                        path = trace,
+                        color = signalYellow.copy(alpha = 0.26f * stain),
+                        style = Stroke(width = circuitStroke, cap = StrokeCap.Square),
+                    )
+                    drawCircle(
+                        color = if (index == 2) emergencyRed else signalYellow,
+                        radius = if (index == 2) 2.2.dp.toPx() else 1.55.dp.toPx(),
+                        center = Offset(xEnd, y + 9.dp.toPx()),
+                        alpha = (0.40f + index * 0.07f) * stain,
+                    )
+                }
+
+                val scanStep = 8.dp.toPx()
+                var scanY = scanStep
+                while (scanY < size.height) {
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.012f + 0.008f * stain),
+                        start = Offset(0f, scanY),
+                        end = Offset(size.width, scanY),
+                        strokeWidth = 0.45.dp.toPx(),
+                    )
+                    scanY += scanStep
+                }
+
+                // RGB split is shown as short displaced fragments, not a blur.
+                val burstOffset = (activeDrift * 22.dp.toPx()).coerceIn(
+                    -12.dp.toPx(),
+                    12.dp.toPx(),
+                )
+                val glitchRows = floatArrayOf(0.17f, 0.34f, 0.57f, 0.73f, 0.91f)
+                glitchRows.forEachIndexed { index, row ->
+                    val fragmentWidth = size.width * (0.12f + (index % 3) * 0.065f)
+                    val baseX = if (index % 2 == 0) {
+                        size.width * (0.03f + index * 0.07f)
+                    } else {
+                        size.width - fragmentWidth - size.width * 0.045f
+                    }
+                    val barHeight = (if (index == 2) 3.0f else 1.35f).dp.toPx()
+                    val alpha = (0.12f + glitchPulse * 0.22f) * stain
+                    drawRect(
+                        color = emergencyRed.copy(alpha = alpha),
+                        topLeft = Offset(baseX - burstOffset - 2.dp.toPx(), size.height * row),
+                        size = Size(fragmentWidth, barHeight),
+                    )
+                    drawRect(
+                        color = splitCyan.copy(alpha = alpha * 0.78f),
+                        topLeft = Offset(baseX + burstOffset + 2.dp.toPx(), size.height * row + barHeight),
+                        size = Size(fragmentWidth * 0.72f, 0.85.dp.toPx()),
+                    )
+                    drawRect(
+                        color = signalYellow.copy(alpha = alpha * 1.12f),
+                        topLeft = Offset(baseX, size.height * row + 0.4.dp.toPx()),
+                        size = Size(fragmentWidth * 0.88f, 0.75.dp.toPx()),
+                    )
+                }
+
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            emergencyRed.copy(alpha = 0.055f * glitchPulse * stain),
+                            Color.Transparent,
+                            splitCyan.copy(alpha = 0.04f * glitchPulse * stain),
+                            Color.Transparent,
+                        ),
+                        start = Offset(size.width * (-0.3f + activeDrift * 0.15f), 0f),
+                        end = Offset(size.width * (0.7f + activeDrift * 0.15f), size.height),
+                    ),
+                )
+            }
             AppTheme.LITE_LIFE -> {
                 drawRect(color = Color(0xFF101115))
             }
@@ -1081,13 +1281,18 @@ private fun MaterialBackground(
 
         if (
             motionProfile.trail > 0.01f &&
-            (theme == AppTheme.LIQUID_GLASS || theme == AppTheme.ROYAL_GRAPHITE)
+            (
+                theme == AppTheme.LIQUID_GLASS ||
+                    theme == AppTheme.ROYAL_GRAPHITE ||
+                    theme == AppTheme.CYBERPUNK
+                )
         ) {
             val trailColor = when (theme) {
                 AppTheme.LIQUID_GLASS -> palette.caustic
                 AppTheme.ROYAL_GRAPHITE -> palette.secondary
                 AppTheme.OLD_SCROLL -> palette.caustic
                 AppTheme.LITE_LIFE -> palette.primary
+                AppTheme.CYBERPUNK -> palette.tertiary
             }
             repeat(2) { index ->
                 val step = index + 1f
@@ -1118,12 +1323,14 @@ private fun MaterialBackground(
             AppTheme.ROYAL_GRAPHITE -> (0.23f * stain).coerceIn(0.09f, 0.29f)
             AppTheme.OLD_SCROLL -> (0.46f * stain).coerceIn(0.16f, 0.52f)
             AppTheme.LITE_LIFE -> 0f
+            AppTheme.CYBERPUNK -> (0.18f * stain).coerceIn(0.06f, 0.24f)
         } * motionProfile.textureAlpha
         val spectralAlpha = when (theme) {
             AppTheme.LIQUID_GLASS -> (0.18f * stain).coerceIn(0.06f, 0.23f)
             AppTheme.ROYAL_GRAPHITE -> (0.12f * stain).coerceIn(0.04f, 0.16f)
             AppTheme.OLD_SCROLL -> (0.32f * stain).coerceIn(0.10f, 0.38f)
             AppTheme.LITE_LIFE -> 0f
+            AppTheme.CYBERPUNK -> (0.16f * stain).coerceIn(0.05f, 0.22f)
         } * motionProfile.textureAlpha
         val overscan = 28f
         withTransform({
@@ -1210,12 +1417,14 @@ fun ProxySurface(
         AppTheme.ROYAL_GRAPHITE -> if (materialPressed) 920f else 560f
         AppTheme.OLD_SCROLL -> if (materialPressed) 1_160f else 760f
         AppTheme.LITE_LIFE -> if (materialPressed) 1_180f else 820f
+        AppTheme.CYBERPUNK -> if (materialPressed) 1_260f else 690f
     }
     val releaseDamping = when (style.theme) {
         AppTheme.LIQUID_GLASS -> if (materialPressed) 0.80f else 0.54f
         AppTheme.ROYAL_GRAPHITE -> if (materialPressed) 0.88f else 0.72f
         AppTheme.OLD_SCROLL -> 0.92f
         AppTheme.LITE_LIFE -> 0.94f
+        AppTheme.CYBERPUNK -> if (materialPressed) 0.94f else 0.78f
     }
     val compression by animateFloatAsState(
         targetValue = if (materialPressed) 1f else 0f,
@@ -1230,6 +1439,7 @@ fun ProxySurface(
         AppTheme.ROYAL_GRAPHITE -> 0.72f
         AppTheme.OLD_SCROLL -> 0.34f
         AppTheme.LITE_LIFE -> 0.22f
+        AppTheme.CYBERPUNK -> 0.46f
     }
     val clarity by animateFloatAsState(
         targetValue = when {
@@ -1250,7 +1460,16 @@ fun ProxySurface(
         ProxySurfaceRole.CARD -> 3.0f
         ProxySurfaceRole.OVERLAY -> 2.2f
     }
-    val resolvedShape = shape ?: RoundedCornerShape(morphCornerDp.dp)
+    val resolvedShape = shape ?: if (style.theme == AppTheme.CYBERPUNK) {
+        CutCornerShape(
+            topStart = (morphCornerDp * 0.28f).dp,
+            topEnd = (morphCornerDp + 8f).dp,
+            bottomEnd = (morphCornerDp * 0.22f).dp,
+            bottomStart = (morphCornerDp + 4f).dp,
+        )
+    } else {
+        RoundedCornerShape(morphCornerDp.dp)
+    }
     val materialFactor = when (style.theme) {
         AppTheme.LIQUID_GLASS -> when (role) {
             ProxySurfaceRole.CARD -> 0.70f
@@ -1276,12 +1495,19 @@ fun ProxySurface(
             ProxySurfaceRole.BUTTON -> 1.00f
             ProxySurfaceRole.OVERLAY -> 1.00f
         }
+        AppTheme.CYBERPUNK -> when (role) {
+            ProxySurfaceRole.CARD -> 0.94f
+            ProxySurfaceRole.INPUT -> 0.97f
+            ProxySurfaceRole.BUTTON -> 1.00f
+            ProxySurfaceRole.OVERLAY -> 1.04f
+        }
     }
     val transmissionFactor = when (style.theme) {
         AppTheme.LIQUID_GLASS -> 1f - clarity * 0.64f
         AppTheme.ROYAL_GRAPHITE -> 1f - clarity * 0.34f
         AppTheme.OLD_SCROLL -> 1f - clarity * 0.14f
         AppTheme.LITE_LIFE -> 1f
+        AppTheme.CYBERPUNK -> 1f - clarity * 0.10f
     }
     fun scaled(color: Color, extra: Float = 1f) = color.copy(
         alpha = (color.alpha * materialFactor * extra * transmissionFactor)
@@ -1301,6 +1527,7 @@ fun ProxySurface(
         AppTheme.ROYAL_GRAPHITE -> 0.40f
         AppTheme.OLD_SCROLL -> 0.56f
         AppTheme.LITE_LIFE -> 0.08f
+        AppTheme.CYBERPUNK -> 1.10f
     }
     val stainAlpha = stainSettings.intensity * roleStainFactor * themeStainFactor * depthFactor *
         (1f + clarity * 0.62f)
@@ -1408,6 +1635,7 @@ fun ProxySurface(
                 )
                 .drawWithCache {
                 val liquid = style.theme == AppTheme.LIQUID_GLASS
+                val cyberpunk = style.theme == AppTheme.CYBERPUNK
                 val highlight = when (style.theme) {
                     AppTheme.LIQUID_GLASS -> Brush.linearGradient(
                         colors = listOf(
@@ -1443,6 +1671,17 @@ fun ProxySurface(
                             Color.White.copy(alpha = 0.028f),
                             Color.Transparent,
                             palette.primary.copy(alpha = if (active) 0.045f else 0.012f),
+                        ),
+                        start = Offset.Zero,
+                        end = Offset(size.width, size.height),
+                    )
+                    AppTheme.CYBERPUNK -> Brush.linearGradient(
+                        colors = listOf(
+                            palette.primary.copy(alpha = if (strong) 0.20f else 0.11f),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.22f),
+                            palette.secondary.copy(alpha = 0.075f + clarity * 0.08f),
+                            palette.tertiary.copy(alpha = 0.035f + clarity * 0.05f),
                         ),
                         start = Offset.Zero,
                         end = Offset(size.width, size.height),
@@ -1485,6 +1724,7 @@ fun ProxySurface(
                             AppTheme.ROYAL_GRAPHITE -> Color.Black.copy(alpha = clarity * 0.16f)
                             AppTheme.OLD_SCROLL -> palette.tertiary.copy(alpha = clarity * 0.065f)
                             AppTheme.LITE_LIFE -> palette.primary.copy(alpha = clarity * 0.035f)
+                            AppTheme.CYBERPUNK -> palette.secondary.copy(alpha = clarity * 0.11f)
                         },
                         1.00f to Color.Transparent,
                     ),
@@ -1503,6 +1743,7 @@ fun ProxySurface(
                     AppTheme.ROYAL_GRAPHITE -> 0.76f
                     AppTheme.OLD_SCROLL -> 0.34f
                     AppTheme.LITE_LIFE -> 0.08f
+                    AppTheme.CYBERPUNK -> 0.72f
                 }
                 val subglassGlow = Brush.radialGradient(
                     colors = listOf(
@@ -1560,6 +1801,11 @@ fun ProxySurface(
                             Color(0xFF252932).copy(alpha = 0.10f * frostFactor),
                             Color.Transparent,
                         )
+                        AppTheme.CYBERPUNK -> listOf(
+                            Color(0xFF25240B).copy(alpha = 0.20f * depthFactor * frostFactor),
+                            Color(0xFF08090A).copy(alpha = 0.10f * frostFactor),
+                            Color.Transparent,
+                        )
                     },
                     center = Offset(size.width * 0.52f, size.height * 0.50f),
                     radius = maxOf(size.width, size.height) * 0.72f,
@@ -1570,6 +1816,7 @@ fun ProxySurface(
                         AppTheme.ROYAL_GRAPHITE -> 0.22f
                         AppTheme.OLD_SCROLL -> 0.38f
                         AppTheme.LITE_LIFE -> 0f
+                        AppTheme.CYBERPUNK -> 0.20f
                     }) * depthFactor *
                         (0.94f - clarity * 0.30f) *
                         (0.76f + stainSettings.intensity * 0.22f) *
@@ -1581,6 +1828,7 @@ fun ProxySurface(
                         AppTheme.ROYAL_GRAPHITE -> 0.10f
                         AppTheme.OLD_SCROLL -> 0.22f
                         AppTheme.LITE_LIFE -> 0f
+                        AppTheme.CYBERPUNK -> 0.17f
                     }) * depthFactor *
                         (0.76f + clarity * 0.24f) *
                         stainSettings.intensity *
@@ -1612,6 +1860,13 @@ fun ProxySurface(
                             Color.White.copy(alpha = 0.08f),
                             Color.Transparent,
                             Color.Black.copy(alpha = 0.16f),
+                        )
+                        AppTheme.CYBERPUNK -> listOf(
+                            palette.primary.copy(alpha = 0.88f),
+                            palette.caustic.copy(alpha = 0.30f),
+                            Color.Transparent,
+                            palette.secondary.copy(alpha = 0.44f + clarity * 0.18f),
+                            palette.tertiary.copy(alpha = 0.22f + clarity * 0.16f),
                         )
                     },
                     start = Offset.Zero,
@@ -1667,6 +1922,7 @@ fun ProxySurface(
                             AppTheme.ROYAL_GRAPHITE -> palette.caustic.copy(alpha = 0.08f + clarity * 0.12f)
                             AppTheme.OLD_SCROLL -> palette.caustic.copy(alpha = 0.16f + clarity * 0.10f)
                             AppTheme.LITE_LIFE -> Color.White.copy(alpha = 0.045f + clarity * 0.025f)
+                            AppTheme.CYBERPUNK -> palette.primary.copy(alpha = 0.22f + clarity * 0.38f)
                         },
                         cornerRadius = CornerRadius(morphCornerDp.dp.toPx()),
                         style = Stroke(width = (0.65f + clarity * 0.85f).dp.toPx()),
@@ -1723,6 +1979,51 @@ fun ProxySurface(
                             end = Offset(size.width * 0.94f, size.height - 1.0f),
                             strokeWidth = 0.8f,
                         )
+                    } else if (cyberpunk) {
+                        val glitchGate = abs(
+                            sin((ambientPhase * 37f + 0.83f).toDouble()),
+                        ).toFloat()
+                        val split = ambientPhase * 10.dp.toPx()
+                        drawRect(
+                            color = palette.primary.copy(alpha = 0.72f + clarity * 0.18f),
+                            topLeft = Offset(size.width * 0.07f, 0f),
+                            size = Size(size.width * 0.46f, 1.6.dp.toPx()),
+                        )
+                        drawRect(
+                            color = palette.secondary.copy(
+                                alpha = (0.20f + glitchGate * 0.28f) * depthFactor,
+                            ),
+                            topLeft = Offset(
+                                size.width * 0.55f - split,
+                                size.height - 2.1.dp.toPx(),
+                            ),
+                            size = Size(size.width * 0.34f, 1.05.dp.toPx()),
+                        )
+                        drawRect(
+                            color = palette.tertiary.copy(
+                                alpha = (0.13f + glitchGate * 0.22f) * depthFactor,
+                            ),
+                            topLeft = Offset(
+                                size.width * 0.62f + split,
+                                size.height - 0.9.dp.toPx(),
+                            ),
+                            size = Size(size.width * 0.23f, 0.75.dp.toPx()),
+                        )
+                        repeat(3) { index ->
+                            val y = size.height * (0.24f + index * 0.22f)
+                            drawRect(
+                                color = when (index) {
+                                    0 -> palette.primary
+                                    1 -> palette.secondary
+                                    else -> palette.tertiary
+                                }.copy(alpha = 0.12f + glitchGate * 0.10f),
+                                topLeft = Offset(
+                                    if (index % 2 == 0) 0f else size.width * 0.86f,
+                                    y,
+                                ),
+                                size = Size(size.width * 0.14f, (0.65f + index * 0.25f).dp.toPx()),
+                            )
+                        }
                     }
                     when (style.theme) {
                         AppTheme.LIQUID_GLASS -> drawLine(
@@ -1746,6 +2047,20 @@ fun ProxySurface(
                             ),
                         )
                         AppTheme.LITE_LIFE -> Unit
+                        AppTheme.CYBERPUNK -> {
+                            drawLine(
+                                color = palette.primary.copy(alpha = 0.16f * depthFactor),
+                                start = Offset(size.width * 0.03f, size.height * 0.68f),
+                                end = Offset(size.width * 0.18f, size.height * 0.68f),
+                                strokeWidth = 0.8.dp.toPx(),
+                                cap = StrokeCap.Square,
+                            )
+                            drawCircle(
+                                color = palette.secondary.copy(alpha = 0.44f),
+                                radius = 1.4.dp.toPx(),
+                                center = Offset(size.width * 0.18f, size.height * 0.68f),
+                            )
+                        }
                     }
                 }
                 }
@@ -1779,6 +2094,13 @@ fun ProxySurface(
                                 Color.White.copy(alpha = if (strong) 0.10f else 0.055f),
                                 palette.primary.copy(alpha = if (active) 0.18f else 0.025f),
                                 Color.Black.copy(alpha = 0.16f),
+                            )
+                            AppTheme.CYBERPUNK -> listOf(
+                                palette.primary.copy(alpha = if (strong || active) 0.98f else 0.72f),
+                                palette.caustic.copy(alpha = 0.24f),
+                                Color.Black.copy(alpha = 0.76f),
+                                palette.secondary.copy(alpha = 0.70f + clarity * 0.18f),
+                                palette.tertiary.copy(alpha = 0.34f + clarity * 0.20f),
                             )
                         },
                     ),
@@ -1829,7 +2151,16 @@ fun ProxyInsetSurface(
         animationSpec = tween(220),
         label = "inset-corner-${role.name.lowercase()}",
     ).value
-    val resolvedShape = shape ?: RoundedCornerShape(animatedCornerDp.dp)
+    val resolvedShape = shape ?: if (style.theme == AppTheme.CYBERPUNK) {
+        CutCornerShape(
+            topStart = 0.dp,
+            topEnd = (animatedCornerDp + 7f).dp,
+            bottomEnd = 0.dp,
+            bottomStart = (animatedCornerDp + 3f).dp,
+        )
+    } else {
+        RoundedCornerShape(animatedCornerDp.dp)
+    }
     val depthFactor = stainSettings.depth.opticalFactor
     val stainAlpha = stainSettings.intensity * depthFactor
     val fillBrush = when (style.theme) {
@@ -1889,12 +2220,34 @@ fun ProxyInsetSurface(
                 listOf(Color(0xFF20232A), Color(0xFF191C21))
             },
         )
+        AppTheme.CYBERPUNK -> Brush.linearGradient(
+            colors = if (selected) {
+                listOf(
+                    Color(0xFF393608),
+                    Color(0xFF17170E),
+                    palette.secondary.copy(alpha = 0.13f * stainAlpha),
+                    Color(0xFF090A0B),
+                )
+            } else {
+                listOf(
+                    Color(0xFF191A16),
+                    Color(0xFF0D0E0F),
+                    palette.tertiary.copy(alpha = 0.045f * stainAlpha),
+                    Color(0xFF070809),
+                )
+            },
+        )
     }
     val outline = when (style.theme) {
         AppTheme.LIQUID_GLASS -> Color.White.copy(alpha = if (selected) 0.52f else 0.24f)
         AppTheme.ROYAL_GRAPHITE -> Color(0xFFBFD3DA).copy(alpha = if (selected) 0.24f else 0.12f)
         AppTheme.OLD_SCROLL -> Color(0xFF74512E).copy(alpha = if (selected) 0.34f else 0.20f)
         AppTheme.LITE_LIFE -> Color.White.copy(alpha = if (selected) 0.12f else 0.055f)
+        AppTheme.CYBERPUNK -> if (selected) {
+            palette.primary.copy(alpha = 0.92f)
+        } else {
+            palette.primary.copy(alpha = 0.34f)
+        }
     }
 
     Box(
@@ -1907,12 +2260,14 @@ fun ProxyInsetSurface(
                     AppTheme.ROYAL_GRAPHITE -> 0.19f
                     AppTheme.OLD_SCROLL -> 0.34f
                     AppTheme.LITE_LIFE -> 0f
+                    AppTheme.CYBERPUNK -> 0.18f
                 }
                 val spectralBase = when (style.theme) {
                     AppTheme.LIQUID_GLASS -> 0.12f
                     AppTheme.ROYAL_GRAPHITE -> 0.075f
                     AppTheme.OLD_SCROLL -> 0.19f
                     AppTheme.LITE_LIFE -> 0f
+                    AppTheme.CYBERPUNK -> 0.14f
                 }
                 val fineAlpha = fineBase *
                     depthFactor * (if (selected) 1.10f else 1f)
@@ -1921,6 +2276,23 @@ fun ProxyInsetSurface(
                 onDrawBehind {
                     drawRect(brush = microstructure.fine, alpha = fineAlpha)
                     drawRect(brush = microstructure.spectral, alpha = spectralAlpha)
+                    if (style.theme == AppTheme.CYBERPUNK) {
+                        drawRect(
+                            color = palette.primary.copy(alpha = if (selected) 0.82f else 0.36f),
+                            topLeft = Offset.Zero,
+                            size = Size(size.width * if (selected) 0.38f else 0.20f, 1.25.dp.toPx()),
+                        )
+                        drawRect(
+                            color = palette.secondary.copy(alpha = if (selected) 0.54f else 0.24f),
+                            topLeft = Offset(size.width * 0.66f, size.height - 0.85.dp.toPx()),
+                            size = Size(size.width * 0.25f, 0.85.dp.toPx()),
+                        )
+                        drawRect(
+                            color = palette.tertiary.copy(alpha = 0.20f),
+                            topLeft = Offset(size.width * 0.72f, size.height - 1.7.dp.toPx()),
+                            size = Size(size.width * 0.16f, 0.55.dp.toPx()),
+                        )
+                    }
                 }
             }
             .border(0.7.dp, outline, resolvedShape),
@@ -2026,6 +2398,39 @@ fun ProxySettingsFog(
             }
             AppTheme.LITE_LIFE -> {
                 drawRect(color = Color(0xFF101115).copy(alpha = amount))
+            }
+            AppTheme.CYBERPUNK -> {
+                drawRect(color = Color(0xFF050607).copy(alpha = amount))
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF181910).copy(alpha = 0.82f * amount),
+                            Color(0xFF08090A).copy(alpha = 0.94f * amount),
+                            Color.Black.copy(alpha = 0.98f * amount),
+                        ),
+                    ),
+                )
+                val warning = Path().apply {
+                    moveTo(0f, 0f)
+                    lineTo(size.width * 0.42f, 0f)
+                    lineTo(size.width * 0.30f, size.height * 0.06f)
+                    lineTo(0f, size.height * 0.06f)
+                    close()
+                }
+                drawPath(
+                    path = warning,
+                    color = palette.primary.copy(alpha = 0.74f * stain * amount),
+                )
+                drawRect(
+                    color = palette.secondary.copy(alpha = 0.34f * amount),
+                    topLeft = Offset(size.width * 0.56f, size.height * 0.15f),
+                    size = Size(size.width * 0.31f, 1.2.dp.toPx()),
+                )
+                drawRect(
+                    color = palette.tertiary.copy(alpha = 0.20f * amount),
+                    topLeft = Offset(size.width * 0.63f, size.height * 0.15f + 1.5.dp.toPx()),
+                    size = Size(size.width * 0.20f, 0.7.dp.toPx()),
+                )
             }
         }
     }

@@ -77,6 +77,7 @@ private fun ProxyBrandMark(
     val liquid = style.theme == AppTheme.LIQUID_GLASS
     val oldScroll = style.theme == AppTheme.OLD_SCROLL
     val liteLife = style.theme == AppTheme.LITE_LIFE
+    val cyberpunk = style.theme == AppTheme.CYBERPUNK
     if (liteLife) {
         val flatBrandColor = MaterialTheme.colorScheme.primary
         Canvas(modifier) {
@@ -87,6 +88,45 @@ private fun ProxyBrandMark(
                     path = ProxyBrandMarkPath,
                     color = flatBrandColor,
                     style = Stroke(72f, cap = StrokeCap.Butt, join = StrokeJoin.Miter),
+                )
+            }
+        }
+        return
+    }
+    if (cyberpunk) {
+        Canvas(modifier) {
+            val scaleX = size.width / 512f
+            val scaleY = size.height / 512f
+            withTransform({ scale(scaleX, scaleY, pivot = Offset.Zero) }) {
+                val glitchShift = phase * 14f
+                drawPath(
+                    path = ProxyBrandMarkPath,
+                    color = Color.Black.copy(alpha = 0.92f),
+                    style = Stroke(102f, cap = StrokeCap.Butt, join = StrokeJoin.Miter),
+                )
+                withTransform({ translate(-8f - glitchShift, 5f) }) {
+                    drawPath(
+                        path = ProxyBrandMarkPath,
+                        color = Color(0xFFFF3B30).copy(alpha = 0.78f),
+                        style = Stroke(78f, cap = StrokeCap.Butt, join = StrokeJoin.Miter),
+                    )
+                }
+                withTransform({ translate(7f + glitchShift, -4f) }) {
+                    drawPath(
+                        path = ProxyBrandMarkPath,
+                        color = Color(0xFF00E7FF).copy(alpha = 0.58f),
+                        style = Stroke(72f, cap = StrokeCap.Butt, join = StrokeJoin.Miter),
+                    )
+                }
+                drawPath(
+                    path = ProxyBrandMarkPath,
+                    color = Color(0xFFF4E900),
+                    style = Stroke(70f, cap = StrokeCap.Butt, join = StrokeJoin.Miter),
+                )
+                drawPath(
+                    path = ProxyBrandMarkPath,
+                    color = Color(0xFF111207),
+                    style = Stroke(12f, cap = StrokeCap.Butt, join = StrokeJoin.Miter),
                 )
             }
         }
@@ -118,6 +158,12 @@ private fun ProxyBrandMark(
             Color(0xFF65A9FF),
             Color(0xFFDCEBFF),
             Color(0xFF347FDA),
+        )
+        AppTheme.CYBERPUNK -> listOf(
+            Color(0xFFF4E900),
+            Color(0xFFFFF56A),
+            Color(0xFFFF3B30),
+            Color(0xFF00E7FF),
         )
     }
 
@@ -233,6 +279,7 @@ private fun ProxyBrandWordmark(
     val liquid = style.theme == AppTheme.LIQUID_GLASS
     val oldScroll = style.theme == AppTheme.OLD_SCROLL
     val liteLife = style.theme == AppTheme.LITE_LIFE
+    val cyberpunk = style.theme == AppTheme.CYBERPUNK
     val textStyle = TextStyle(
         fontFamily = MaterialTheme.typography.titleMedium.fontFamily,
         fontWeight = FontWeight.Bold,
@@ -245,6 +292,39 @@ private fun ProxyBrandWordmark(
             style = textStyle,
             color = MaterialTheme.colorScheme.onBackground,
         )
+        return
+    }
+    if (cyberpunk) {
+        val cyberStyle = textStyle.copy(
+            fontWeight = FontWeight.Black,
+            fontSize = 16.sp,
+            letterSpacing = 0.35.sp,
+        )
+        Box(contentAlignment = Alignment.CenterStart) {
+            Text(
+                text = "PROXY//SCROLL",
+                modifier = Modifier.offset(x = (-1.2).dp, y = 0.8.dp),
+                style = cyberStyle,
+                color = Color(0xFFFF3B30).copy(alpha = 0.78f),
+            )
+            Text(
+                text = "PROXY//SCROLL",
+                modifier = Modifier.offset(x = 1.15.dp, y = (-0.55).dp),
+                style = cyberStyle,
+                color = Color(0xFF00E7FF).copy(alpha = 0.58f),
+            )
+            Text(
+                text = "PROXY//SCROLL",
+                style = cyberStyle.copy(
+                    shadow = Shadow(
+                        color = Color.Black,
+                        offset = Offset(1.5f, 1.5f),
+                        blurRadius = 0f,
+                    ),
+                ),
+                color = Color(0xFFF4E900),
+            )
+        }
         return
     }
     val body = Brush.linearGradient(
@@ -271,6 +351,12 @@ private fun ProxyBrandWordmark(
                 Color(0xFFF4F6FA),
                 Color(0xFFDDE7F5),
                 palette.primary,
+            )
+            AppTheme.CYBERPUNK -> listOf(
+                Color(0xFFF4E900),
+                Color(0xFFFFF56A),
+                Color(0xFFFF3B30),
+                Color(0xFF00E7FF),
             )
         },
         start = Offset(-40f + phase * 34f, 0f),
