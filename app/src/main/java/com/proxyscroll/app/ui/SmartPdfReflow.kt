@@ -1,70 +1,31 @@
 package com.proxyscroll.app.ui
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 import java.util.LinkedHashMap
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
- * Rendering modes are deliberately independent from OCR. SMART_CROP only removes
- * dead page margins. REFLOW additionally detects a stable vertical gutter and
- * places the left and right columns into one phone-width reading stream.
+ * OCR-free PDF layout modes. Smart Crop removes dead paper margins while preserving
+ * page geometry. Smart Reflow additionally turns detected columns/spreads into a
+ * phone-width sequence.
  */
 internal enum class PdfLayoutMode(val label: String) {
     ORIGINAL("Оригинал"),
-    SMART_CROP("Smart Crop"),
+    SMART_CROP("Smart Resizer"),
     REFLOW("Smart Reflow"),
 }
 
@@ -82,6 +43,8 @@ internal enum class PdfRegionRole {
     FULL_WIDTH,
     LEFT_COLUMN,
     RIGHT_COLUMN,
+    LEFT_PAGE,
+    RIGHT_PAGE,
 }
 
 internal data class PdfPageRegion(
@@ -92,7 +55,9 @@ internal data class PdfPageRegion(
 internal data class PdfPageLayoutAnalysis(
     val contentBounds: NormalizedPdfRect,
     val readingRegions: List<PdfPageRegion>,
+    val spreadRegions: List<PdfPageRegion>,
     val columnCount: Int,
+    val spreadDetected: Boolean,
     val confidence: Float,
 )
 
@@ -104,16 +69,28 @@ internal data class SmartPdfRegionImage(
         get() = image.width.toFloat() / image.height.toFloat().coerceAtLeast(1f)
 }
 
+/**
+ * Atmosphere is deliberately separate from the page image. A uniform paper edge
+ * can fill the whole display with an exact color (white stays truly white). When
+ * the edge is photographic/colored, a tiny blurred copy is used instead.
+ */
+internal data class PdfPageAtmosphere(
+    val edgeColorArgb: Int = Color.WHITE,
+    val edgeUniformity: Float = 1f,
+    val useSolidColor: Boolean = true,
+    val blurredBackdrop: ImageBitmap? = null,
+)
+
 internal data class SmartPdfPageRender(
     val regions: List<SmartPdfRegionImage> = emptyList(),
     val analysis: PdfPageLayoutAnalysis? = null,
-    val backdrop: androidx.compose.ui.graphics.ImageBitmap? = null,
+    val atmosphere: PdfPageAtmosphere? = null,
     val error: String? = null,
 )
 
-/** Keeps only a few analyzed pages: cropped regions are approximately one source page each. */
+/** Keeps a handful of rendered pages around both paged and continuous readers. */
 internal class SmartPdfReflowCache(
-    private val maxEntries: Int = 3,
+    private val maxEntries: Int = 6,
 ) {
     private val pages = object : LinkedHashMap<String, SmartPdfPageRender>(maxEntries, 0.75f, true) {
         override fun removeEldestEntry(
@@ -142,136 +119,18 @@ internal class SmartPdfReflowCache(
     fun clear() = synchronized(this) { pages.clear() }
 }
 
-@Composable
-internal fun SmartPdfReflowPage(
-    documentUri: String,
-    page: Int,
+internal suspend fun renderSmartPdfPageAsync(
+    context: Context,
+    uri: Uri,
+    requestedPage: Int,
     mode: PdfLayoutMode,
-    readingProfile: PdfReadingProfile,
-    controlsVisible: Boolean,
     cache: SmartPdfReflowCache,
-    isCurrent: Boolean,
-    onInteractionChanged: (Boolean) -> Unit,
-    onCenterTap: () -> Unit,
-    onPreviousPage: () -> Unit,
-    onNextPage: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    val listState = rememberLazyListState()
-    var viewportWidth by remember(page, mode) { mutableIntStateOf(1) }
-    val cached = remember(documentUri, page, mode) { cache.get(page, mode) }
-    val render by produceState(
-        initialValue = cached ?: SmartPdfPageRender(),
-        key1 = documentUri,
-        key2 = page,
-        key3 = mode,
-    ) {
-        if (value.regions.isEmpty() && value.error == null) {
-            value = withContext(Dispatchers.IO) {
-                renderSmartPdfPage(
-                    context = context,
-                    uri = Uri.parse(documentUri),
-                    requestedPage = page,
-                    mode = mode,
-                    cache = cache,
-                )
-            }
-        }
-    }
-
-    LaunchedEffect(listState, isCurrent) {
-        snapshotFlow { listState.isScrollInProgress }
-            .distinctUntilChanged()
-            .collectLatest { scrolling ->
-                onInteractionChanged(isCurrent && scrolling)
-            }
-    }
-    DisposableEffect(isCurrent) {
-        onDispose {
-            if (isCurrent) onInteractionChanged(false)
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .onGloballyPositioned { viewportWidth = it.size.width.coerceAtLeast(1) }
-            .pointerInput(page, mode, viewportWidth) {
-                detectTapGestures { position ->
-                    when {
-                        position.x < viewportWidth * 0.18f -> onPreviousPage()
-                        position.x > viewportWidth * 0.82f -> onNextPage()
-                        else -> onCenterTap()
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        render.backdrop?.let { backdrop ->
-            PdfPageBackdrop(
-                image = backdrop,
-                readingProfile = readingProfile,
-            )
-        }
-        when {
-            render.error != null -> Column(
-                modifier = Modifier.padding(28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    Icons.Default.Description,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    render.error.orEmpty(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
-
-            render.regions.isEmpty() -> CircularProgressIndicator()
-
-            else -> LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 4.dp,
-                    end = 4.dp,
-                    top = if (controlsVisible) 86.dp else 8.dp,
-                    bottom = if (controlsVisible) 132.dp else 12.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                itemsIndexed(render.regions) { index, region ->
-                    Image(
-                        bitmap = region.image,
-                        contentDescription = "Страница ${page + 1}, фрагмент ${index + 1}",
-                        contentScale = ContentScale.FillWidth,
-                        colorFilter = pdfReadingColorFilter(readingProfile),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(region.aspectRatio)
-                            .shadow(
-                                elevation = 10.dp,
-                                shape = RoundedCornerShape(3.dp),
-                                clip = false,
-                            )
-                            .clip(RoundedCornerShape(3.dp)),
-                    )
-                }
-
-                item { Spacer(Modifier.height(6.dp)) }
-            }
-        }
-    }
+): SmartPdfPageRender = withContext(Dispatchers.IO) {
+    renderSmartPdfPage(context, uri, requestedPage, mode, cache)
 }
 
-private fun renderSmartPdfPage(
-    context: android.content.Context,
+internal fun renderSmartPdfPage(
+    context: Context,
     uri: Uri,
     requestedPage: Int,
     mode: PdfLayoutMode,
@@ -286,46 +145,52 @@ private fun renderSmartPdfPage(
                 if (renderer.pageCount <= 0) error("В документе нет страниц")
                 val actualPage = requestedPage.coerceIn(0, renderer.pageCount - 1)
                 renderer.openPage(actualPage).use { pdfPage ->
-                    val targetWidth = 1800
-                    val targetHeight = (targetWidth.toFloat() * pdfPage.height / pdfPage.width)
-                        .roundToInt()
-                        .coerceAtLeast(1)
-                    val bitmap = Bitmap.createBitmap(
-                        targetWidth,
-                        targetHeight,
-                        Bitmap.Config.ARGB_8888,
-                    )
-                    bitmap.eraseColor(Color.WHITE)
-                    pdfPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-
-                    val analysis = analyzePdfPageBitmap(bitmap)
+                    val source = renderSourceBitmap(pdfPage)
+                    val atmosphere = analyzePageAtmosphere(source)
+                    val analysis = analyzePdfPageBitmap(source)
                     val chosenRegions = when (mode) {
                         PdfLayoutMode.ORIGINAL -> listOf(
                             PdfPageRegion(
-                                NormalizedPdfRect(0f, 0f, 1f, 1f),
-                                PdfRegionRole.FULL_WIDTH,
+                                bounds = NormalizedPdfRect(0f, 0f, 1f, 1f),
+                                role = PdfRegionRole.FULL_WIDTH,
                             ),
                         )
-                        PdfLayoutMode.SMART_CROP -> listOf(
-                            PdfPageRegion(analysis.contentBounds, PdfRegionRole.FULL_WIDTH),
-                        )
+
+                        PdfLayoutMode.SMART_CROP -> {
+                            if (analysis.spreadRegions.isNotEmpty()) {
+                                analysis.spreadRegions
+                            } else {
+                                listOf(
+                                    PdfPageRegion(
+                                        analysis.contentBounds,
+                                        PdfRegionRole.FULL_WIDTH,
+                                    ),
+                                )
+                            }
+                        }
+
                         PdfLayoutMode.REFLOW -> analysis.readingRegions
                     }
+
                     val regionImages = chosenRegions.map { region ->
-                        val pixelRect = region.bounds.toPixelRect(bitmap.width, bitmap.height)
+                        val rect = region.bounds.toPixelRect(source.width, source.height)
                         val cropped = Bitmap.createBitmap(
-                            bitmap,
-                            pixelRect.left,
-                            pixelRect.top,
-                            pixelRect.width,
-                            pixelRect.height,
+                            source,
+                            rect.left,
+                            rect.top,
+                            rect.width,
+                            rect.height,
                         )
-                        SmartPdfRegionImage(cropped.asImageBitmap(), region.role)
+                        SmartPdfRegionImage(
+                            image = cropped.asImageBitmap(),
+                            role = region.role,
+                        )
                     }
+
                     SmartPdfPageRender(
                         regions = regionImages,
                         analysis = analysis.copy(readingRegions = chosenRegions),
-                        backdrop = createPdfBackdrop(bitmap),
+                        atmosphere = atmosphere,
                     )
                 }
             }
@@ -333,6 +198,148 @@ private fun renderSmartPdfPage(
     }
 }.getOrElse { error ->
     SmartPdfPageRender(error = error.message ?: "Не удалось проанализировать страницу")
+}
+
+private fun renderSourceBitmap(page: PdfRenderer.Page): Bitmap {
+    val widthScale = 1800f / page.width.coerceAtLeast(1)
+    val heightScale = 2700f / page.height.coerceAtLeast(1)
+    val scale = min(widthScale, heightScale).coerceAtLeast(0.35f)
+    val targetWidth = (page.width * scale).roundToInt().coerceAtLeast(1)
+    val targetHeight = (page.height * scale).roundToInt().coerceAtLeast(1)
+    return Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888).also { bitmap ->
+        bitmap.eraseColor(Color.WHITE)
+        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+    }
+}
+
+private data class EdgeStatistics(
+    val color: Int,
+    val uniformity: Float,
+    val nearWhite: Boolean,
+)
+
+private fun analyzePageAtmosphere(source: Bitmap): PdfPageAtmosphere {
+    val stats = samplePageEdge(source)
+    val useSolid = stats.nearWhite || stats.uniformity >= 0.86f
+    return PdfPageAtmosphere(
+        edgeColorArgb = if (stats.nearWhite) Color.WHITE else stats.color,
+        edgeUniformity = stats.uniformity,
+        useSolidColor = useSolid,
+        blurredBackdrop = if (useSolid) null else createBlurredBackdrop(source),
+    )
+}
+
+/** Samples a thin band, not one fragile outer pixel row. */
+private fun samplePageEdge(source: Bitmap): EdgeStatistics {
+    val width = source.width.coerceAtLeast(1)
+    val height = source.height.coerceAtLeast(1)
+    val bandX = max(1, width / 32)
+    val bandY = max(1, height / 32)
+    val step = max(1, min(width, height) / 72)
+
+    var count = 0L
+    var sumR = 0L
+    var sumG = 0L
+    var sumB = 0L
+    var sumSq = 0.0
+
+    fun add(color: Int) {
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        sumR += r
+        sumG += g
+        sumB += b
+        sumSq += (r * r + g * g + b * b).toDouble()
+        count += 1
+    }
+
+    for (y in 0 until bandY step step) {
+        for (x in 0 until width step step) {
+            add(source.getPixel(x, y))
+            add(source.getPixel(x, height - 1 - y))
+        }
+    }
+    for (x in 0 until bandX step step) {
+        for (y in bandY until (height - bandY).coerceAtLeast(bandY + 1) step step) {
+            add(source.getPixel(x, y.coerceIn(0, height - 1)))
+            add(source.getPixel(width - 1 - x, y.coerceIn(0, height - 1)))
+        }
+    }
+
+    if (count <= 0L) return EdgeStatistics(Color.WHITE, 1f, true)
+    val meanR = (sumR / count).toInt().coerceIn(0, 255)
+    val meanG = (sumG / count).toInt().coerceIn(0, 255)
+    val meanB = (sumB / count).toInt().coerceIn(0, 255)
+    val meanSq = (meanR * meanR + meanG * meanG + meanB * meanB).toDouble()
+    val variancePerChannel = ((sumSq / count) - meanSq).coerceAtLeast(0.0) / 3.0
+    val sigma = sqrt(variancePerChannel)
+    val uniformity = (1.0 - sigma / 92.0).toFloat().coerceIn(0f, 1f)
+    val nearWhite = meanR >= 243 && meanG >= 243 && meanB >= 243 && uniformity >= 0.72f
+    return EdgeStatistics(
+        color = Color.rgb(meanR, meanG, meanB),
+        uniformity = uniformity,
+        nearWhite = nearWhite,
+    )
+}
+
+private fun createBlurredBackdrop(source: Bitmap): ImageBitmap {
+    val targetWidth = 72
+    val targetHeight = (
+        source.height.toFloat() * targetWidth / source.width.coerceAtLeast(1)
+        ).roundToInt().coerceIn(48, 128)
+    val small = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+        .copy(Bitmap.Config.ARGB_8888, true)
+    repeat(3) { boxBlurInPlace(small, radius = 4) }
+    return small.asImageBitmap()
+}
+
+private fun boxBlurInPlace(bitmap: Bitmap, radius: Int) {
+    if (radius <= 0 || bitmap.width <= 1 || bitmap.height <= 1) return
+    val width = bitmap.width
+    val height = bitmap.height
+    val source = IntArray(width * height)
+    val target = IntArray(width * height)
+    bitmap.getPixels(source, 0, width, 0, 0, width, height)
+
+    for (y in 0 until height) {
+        for (x in 0 until width) {
+            var count = 0
+            var r = 0
+            var g = 0
+            var b = 0
+            val left = max(0, x - radius)
+            val right = min(width - 1, x + radius)
+            for (sx in left..right) {
+                val c = source[y * width + sx]
+                r += Color.red(c)
+                g += Color.green(c)
+                b += Color.blue(c)
+                count += 1
+            }
+            target[y * width + x] = Color.rgb(r / count, g / count, b / count)
+        }
+    }
+
+    for (y in 0 until height) {
+        for (x in 0 until width) {
+            var count = 0
+            var r = 0
+            var g = 0
+            var b = 0
+            val top = max(0, y - radius)
+            val bottom = min(height - 1, y + radius)
+            for (sy in top..bottom) {
+                val c = target[sy * width + x]
+                r += Color.red(c)
+                g += Color.green(c)
+                b += Color.blue(c)
+                count += 1
+            }
+            source[y * width + x] = Color.rgb(r / count, g / count, b / count)
+        }
+    }
+    bitmap.setPixels(source, 0, width, 0, 0, width, height)
 }
 
 private data class PixelRect(
@@ -353,17 +360,21 @@ private fun NormalizedPdfRect.toPixelRect(width: Int, height: Int): PixelRect {
     return PixelRect(safeLeft, safeTop, safeRight, safeBottom)
 }
 
+private data class MaskAnalysis(
+    val width: Int,
+    val height: Int,
+    val foreground: BooleanArray,
+    val rowInk: IntArray,
+    val colInk: IntArray,
+)
+
 /**
- * OCR-free page geometry analysis.
- *
- * The page is downsampled to a small luminance mask, which keeps this cheap enough
- * for on-device use. Content bounds are found from horizontal/vertical ink
- * projections. A two-column page is accepted only when a central low-ink gutter
- * persists for a large vertical part of the content; otherwise the result safely
- * falls back to a single Smart Crop region.
+ * Cheap luminance geometry analysis. The strict spread detector intentionally runs
+ * before the looser two-column detector so scanned book spreads become two virtual
+ * pages instead of one tiny landscape page.
  */
 private fun analyzePdfPageBitmap(source: Bitmap): PdfPageLayoutAnalysis {
-    val analysisWidth = source.width.coerceAtMost(320).coerceAtLeast(1)
+    val analysisWidth = source.width.coerceAtMost(340).coerceAtLeast(1)
     val analysisHeight = (
         source.height.toFloat() * analysisWidth / source.width.coerceAtLeast(1)
         ).roundToInt().coerceAtLeast(1)
@@ -373,6 +384,36 @@ private fun analyzePdfPageBitmap(source: Bitmap): PdfPageLayoutAnalysis {
         Bitmap.createScaledBitmap(source, analysisWidth, analysisHeight, true)
     }
 
+    val mask = buildForegroundMask(sample)
+    val content = findContentBounds(mask)
+    val spread = detectSpread(mask, content, source.width.toFloat() / source.height.coerceAtLeast(1))
+    if (spread.regions.isNotEmpty()) {
+        return PdfPageLayoutAnalysis(
+            contentBounds = content,
+            readingRegions = spread.regions,
+            spreadRegions = spread.regions,
+            columnCount = 2,
+            spreadDetected = true,
+            confidence = spread.confidence,
+        )
+    }
+
+    val columns = detectColumns(mask, content)
+    return PdfPageLayoutAnalysis(
+        contentBounds = content,
+        readingRegions = if (columns.regions.isNotEmpty()) {
+            columns.regions
+        } else {
+            listOf(PdfPageRegion(content, PdfRegionRole.FULL_WIDTH))
+        },
+        spreadRegions = emptyList(),
+        columnCount = if (columns.regions.isNotEmpty()) 2 else 1,
+        spreadDetected = false,
+        confidence = columns.confidence,
+    )
+}
+
+private fun buildForegroundMask(sample: Bitmap): MaskAnalysis {
     val width = sample.width
     val height = sample.height
     val pixels = IntArray(width * height)
@@ -387,7 +428,7 @@ private fun analyzePdfPageBitmap(source: Bitmap): PdfPageLayoutAnalysis {
 
     var borderSum = 0L
     var borderSamples = 0
-    val stride = max(1, minOf(width, height) / 80)
+    val stride = max(1, min(width, height) / 72)
     for (x in 0 until width step stride) {
         borderSum += luminance(pixels[x])
         borderSum += luminance(pixels[(height - 1) * width + x])
@@ -399,204 +440,227 @@ private fun analyzePdfPageBitmap(source: Bitmap): PdfPageLayoutAnalysis {
         borderSamples += 2
     }
     val background = if (borderSamples > 0) (borderSum / borderSamples).toInt() else 255
-    val darkBackground = background < 128
-    val lightThreshold = (background - 30).coerceIn(145, 238)
-    val darkThreshold = (background + 30).coerceIn(24, 205)
-
     val foreground = BooleanArray(width * height)
     val rowInk = IntArray(height)
     val colInk = IntArray(width)
+
     for (y in 0 until height) {
-        val rowBase = y * width
+        val base = y * width
         for (x in 0 until width) {
-            val lum = luminance(pixels[rowBase + x])
-            val isInk = if (darkBackground) lum > darkThreshold else lum < lightThreshold
+            val lum = luminance(pixels[base + x])
+            val isInk = abs(lum - background) >= 28
             if (isInk) {
-                foreground[rowBase + x] = true
+                foreground[base + x] = true
                 rowInk[y] += 1
                 colInk[x] += 1
             }
         }
     }
+    return MaskAnalysis(width, height, foreground, rowInk, colInk)
+}
 
-    val minRowInk = max(2, (width * 0.004f).roundToInt())
-    val minColInk = max(2, (height * 0.003f).roundToInt())
-    var contentTop = rowInk.indexOfFirst { it >= minRowInk }
-    var contentBottom = rowInk.indexOfLast { it >= minRowInk }
-    var contentLeft = colInk.indexOfFirst { it >= minColInk }
-    var contentRight = colInk.indexOfLast { it >= minColInk }
-
-    if (contentTop < 0 || contentBottom < contentTop || contentLeft < 0 || contentRight < contentLeft) {
-        if (sample !== source) sample.recycle()
-        val full = NormalizedPdfRect(0f, 0f, 1f, 1f)
-        return PdfPageLayoutAnalysis(
-            contentBounds = full,
-            readingRegions = listOf(PdfPageRegion(full, PdfRegionRole.FULL_WIDTH)),
-            columnCount = 1,
-            confidence = 0.35f,
-        )
+private fun findContentBounds(mask: MaskAnalysis): NormalizedPdfRect {
+    val rowThreshold = max(1, (mask.width * 0.006f).roundToInt())
+    val colThreshold = max(1, (mask.height * 0.006f).roundToInt())
+    val firstRow = mask.rowInk.indexOfFirst { it >= rowThreshold }
+    val lastRow = mask.rowInk.indexOfLast { it >= rowThreshold }
+    val firstCol = mask.colInk.indexOfFirst { it >= colThreshold }
+    val lastCol = mask.colInk.indexOfLast { it >= colThreshold }
+    if (firstRow < 0 || lastRow < firstRow || firstCol < 0 || lastCol < firstCol) {
+        return NormalizedPdfRect(0f, 0f, 1f, 1f)
     }
 
-    val rawContentWidth = (contentRight - contentLeft + 1).coerceAtLeast(1)
-    val rawContentHeight = (contentBottom - contentTop + 1).coerceAtLeast(1)
-    val padX = max(2, (rawContentWidth * 0.018f).roundToInt())
-    val padY = max(2, (rawContentHeight * 0.012f).roundToInt())
-    contentLeft = (contentLeft - padX).coerceAtLeast(0)
-    contentRight = (contentRight + padX).coerceAtMost(width - 1)
-    contentTop = (contentTop - padY).coerceAtLeast(0)
-    contentBottom = (contentBottom + padY).coerceAtMost(height - 1)
-
-    val contentWidth = (contentRight - contentLeft + 1).coerceAtLeast(1)
-    val contentHeight = (contentBottom - contentTop + 1).coerceAtLeast(1)
-    val contentRect = NormalizedPdfRect(
-        left = contentLeft.toFloat() / width,
-        top = contentTop.toFloat() / height,
-        right = (contentRight + 1).toFloat() / width,
-        bottom = (contentBottom + 1).toFloat() / height,
+    val padX = max(2, (mask.width * 0.012f).roundToInt())
+    val padY = max(2, (mask.height * 0.012f).roundToInt())
+    return NormalizedPdfRect(
+        left = (firstCol - padX).coerceAtLeast(0).toFloat() / mask.width,
+        top = (firstRow - padY).coerceAtLeast(0).toFloat() / mask.height,
+        right = (lastCol + 1 + padX).coerceAtMost(mask.width).toFloat() / mask.width,
+        bottom = (lastRow + 1 + padY).coerceAtMost(mask.height).toFloat() / mask.height,
     )
+}
 
-    val scanTop = contentTop + (contentHeight * 0.10f).roundToInt()
-    val scanBottom = contentBottom - (contentHeight * 0.06f).roundToInt()
-    val centerSearchLeft = contentLeft + (contentWidth * 0.27f).roundToInt()
-    val centerSearchRight = contentLeft + (contentWidth * 0.73f).roundToInt()
-    val scanHeight = (scanBottom - scanTop + 1).coerceAtLeast(1)
+private data class SplitResult(
+    val regions: List<PdfPageRegion> = emptyList(),
+    val confidence: Float = 0f,
+)
 
-    val lowInkColumn = BooleanArray(width)
-    for (x in centerSearchLeft.coerceAtLeast(0)..centerSearchRight.coerceAtMost(width - 1)) {
+private fun detectSpread(
+    mask: MaskAnalysis,
+    content: NormalizedPdfRect,
+    sourceAspect: Float,
+): SplitResult {
+    if (sourceAspect < 1.06f || content.width < 0.62f) return SplitResult()
+    val x0 = (content.left * mask.width).roundToInt().coerceIn(0, mask.width - 1)
+    val x1 = (content.right * mask.width).roundToInt().coerceIn(x0 + 1, mask.width)
+    val y0 = (content.top * mask.height).roundToInt().coerceIn(0, mask.height - 1)
+    val y1 = (content.bottom * mask.height).roundToInt().coerceIn(y0 + 1, mask.height)
+    val centerStart = (x0 + (x1 - x0) * 0.40f).roundToInt()
+    val centerEnd = (x0 + (x1 - x0) * 0.60f).roundToInt().coerceAtLeast(centerStart + 1)
+    val gutterX = (centerStart until centerEnd).minByOrNull { mask.colInk[it] } ?: return SplitResult()
+    val gutterHalf = max(2, mask.width / 80)
+    val gutterLeft = (gutterX - gutterHalf).coerceAtLeast(x0)
+    val gutterRight = (gutterX + gutterHalf).coerceAtMost(x1 - 1)
+
+    var blankRows = 0
+    var inspectedRows = 0
+    for (y in y0 until y1) {
         var ink = 0
-        for (y in scanTop.coerceAtLeast(0)..scanBottom.coerceAtMost(height - 1)) {
-            if (foreground[y * width + x]) ink += 1
+        for (x in gutterLeft..gutterRight) {
+            if (mask.foreground[y * mask.width + x]) ink += 1
         }
-        lowInkColumn[x] = ink.toFloat() / scanHeight < 0.025f
+        val bandWidth = (gutterRight - gutterLeft + 1).coerceAtLeast(1)
+        if (ink <= max(1, (bandWidth * 0.08f).roundToInt())) blankRows += 1
+        inspectedRows += 1
     }
+    val blankRatio = blankRows.toFloat() / inspectedRows.coerceAtLeast(1)
 
-    data class Run(val start: Int, val end: Int) {
-        val length: Int get() = end - start + 1
-        val center: Float get() = (start + end) / 2f
-    }
-
-    val gutterRuns = mutableListOf<Run>()
-    var runStart = -1
-    for (x in centerSearchLeft..centerSearchRight + 1) {
-        val isBlank = x <= centerSearchRight && x in lowInkColumn.indices && lowInkColumn[x]
-        if (isBlank && runStart < 0) runStart = x
-        if (!isBlank && runStart >= 0) {
-            gutterRuns += Run(runStart, x - 1)
-            runStart = -1
-        }
-    }
-
-    val minGutterWidth = max(3, (contentWidth * 0.022f).roundToInt())
-    val pageCenter = (contentLeft + contentRight) / 2f
-    val gutter = gutterRuns
-        .filter { it.length >= minGutterWidth }
-        .maxByOrNull { run ->
-            val widthScore = run.length.toFloat() / contentWidth
-            val centerPenalty = kotlin.math.abs(run.center - pageCenter) / contentWidth
-            widthScore * 2.4f - centerPenalty
-        }
-
-    if (gutter == null) {
-        if (sample !== source) sample.recycle()
-        return PdfPageLayoutAnalysis(
-            contentBounds = contentRect,
-            readingRegions = listOf(PdfPageRegion(contentRect, PdfRegionRole.FULL_WIDTH)),
-            columnCount = 1,
-            confidence = 0.78f,
-        )
-    }
-
-    val leftWidth = gutter.start - contentLeft
-    val rightWidth = contentRight - gutter.end
-    if (leftWidth < contentWidth * 0.26f || rightWidth < contentWidth * 0.26f) {
-        if (sample !== source) sample.recycle()
-        return PdfPageLayoutAnalysis(
-            contentBounds = contentRect,
-            readingRegions = listOf(PdfPageRegion(contentRect, PdfRegionRole.FULL_WIDTH)),
-            columnCount = 1,
-            confidence = 0.74f,
-        )
-    }
-
-    val gutterWidth = gutter.length.coerceAtLeast(1)
-    val blankThroughGutter = BooleanArray(height)
-    for (y in contentTop..contentBottom) {
-        var ink = 0
-        for (x in gutter.start..gutter.end) {
-            if (foreground[y * width + x]) ink += 1
-        }
-        blankThroughGutter[y] = ink <= max(1, (gutterWidth * 0.03f).roundToInt())
-    }
-
-    var bestStart = contentTop
-    var bestEnd = contentTop - 1
-    var currentStart = -1
-    for (y in contentTop..contentBottom + 1) {
-        val blank = y <= contentBottom && y in blankThroughGutter.indices && blankThroughGutter[y]
-        if (blank && currentStart < 0) currentStart = y
-        if (!blank && currentStart >= 0) {
-            if (y - currentStart > bestEnd - bestStart + 1) {
-                bestStart = currentStart
-                bestEnd = y - 1
-            }
-            currentStart = -1
+    val localRadius = max(4, mask.width / 20)
+    val localStart = (gutterX - localRadius).coerceAtLeast(x0)
+    val localEnd = (gutterX + localRadius).coerceAtMost(x1 - 1)
+    var localInk = 0f
+    var localCount = 0
+    for (x in localStart..localEnd) {
+        if (x !in gutterLeft..gutterRight) {
+            localInk += mask.colInk[x]
+            localCount += 1
         }
     }
-
-    val bodyHeight = (bestEnd - bestStart + 1).coerceAtLeast(0)
-    val bodyRatio = bodyHeight.toFloat() / contentHeight
-    if (bodyRatio < 0.44f) {
-        if (sample !== source) sample.recycle()
-        return PdfPageLayoutAnalysis(
-            contentBounds = contentRect,
-            readingRegions = listOf(PdfPageRegion(contentRect, PdfRegionRole.FULL_WIDTH)),
-            columnCount = 1,
-            confidence = 0.70f,
-        )
+    val neighborhoodInk = localInk / localCount.coerceAtLeast(1)
+    val gutterInk = (gutterLeft..gutterRight).map { mask.colInk[it] }.average().toFloat()
+    val gutterStrength = if (neighborhoodInk <= 0.5f) 0f else {
+        (1f - gutterInk / neighborhoodInk).coerceIn(0f, 1f)
     }
 
-    fun normalizedRect(left: Int, top: Int, rightInclusive: Int, bottomInclusive: Int) =
-        NormalizedPdfRect(
-            left = left.coerceIn(0, width - 1).toFloat() / width,
-            top = top.coerceIn(0, height - 1).toFloat() / height,
-            right = (rightInclusive + 1).coerceIn(1, width).toFloat() / width,
-            bottom = (bottomInclusive + 1).coerceIn(1, height).toFloat() / height,
-        )
-
-    val regions = mutableListOf<PdfPageRegion>()
-    val minBandHeight = max(6, (contentHeight * 0.035f).roundToInt())
-    if (bestStart - contentTop >= minBandHeight) {
-        regions += PdfPageRegion(
-            normalizedRect(contentLeft, contentTop, contentRight, bestStart - 1),
-            PdfRegionRole.FULL_WIDTH,
-        )
-    }
-    regions += PdfPageRegion(
-        normalizedRect(contentLeft, bestStart, gutter.start - 1, bestEnd),
-        PdfRegionRole.LEFT_COLUMN,
-    )
-    regions += PdfPageRegion(
-        normalizedRect(gutter.end + 1, bestStart, contentRight, bestEnd),
-        PdfRegionRole.RIGHT_COLUMN,
-    )
-    if (contentBottom - bestEnd >= minBandHeight) {
-        regions += PdfPageRegion(
-            normalizedRect(contentLeft, bestEnd + 1, contentRight, contentBottom),
-            PdfRegionRole.FULL_WIDTH,
-        )
+    val leftInk = sumInk(mask, x0, gutterLeft, y0, y1)
+    val rightInk = sumInk(mask, gutterRight + 1, x1, y0, y1)
+    val balance = min(leftInk, rightInk).toFloat() / max(leftInk, rightInk).coerceAtLeast(1)
+    val confidence = (blankRatio * 0.48f + gutterStrength * 0.34f + balance * 0.18f)
+        .coerceIn(0f, 1f)
+    if (blankRatio < 0.70f || gutterStrength < 0.52f || balance < 0.24f || confidence < 0.62f) {
+        return SplitResult(confidence = confidence)
     }
 
-    val centerOffset = kotlin.math.abs(gutter.center - pageCenter) / contentWidth
-    val gutterRatio = gutter.length.toFloat() / contentWidth
-    val confidence = (
-        0.58f + bodyRatio * 0.28f + gutterRatio * 1.6f - centerOffset * 0.25f
-        ).coerceIn(0.55f, 0.97f)
-
-    if (sample !== source) sample.recycle()
-    return PdfPageLayoutAnalysis(
-        contentBounds = contentRect,
-        readingRegions = regions,
-        columnCount = 2,
+    val leftBounds = tightBounds(mask, x0, gutterLeft, y0, y1)
+    val rightBounds = tightBounds(mask, gutterRight + 1, x1, y0, y1)
+    if (leftBounds.width < 0.18f || rightBounds.width < 0.18f) return SplitResult(confidence = confidence)
+    return SplitResult(
+        regions = listOf(
+            PdfPageRegion(leftBounds, PdfRegionRole.LEFT_PAGE),
+            PdfPageRegion(rightBounds, PdfRegionRole.RIGHT_PAGE),
+        ),
         confidence = confidence,
+    )
+}
+
+private fun detectColumns(mask: MaskAnalysis, content: NormalizedPdfRect): SplitResult {
+    if (content.width < 0.56f || content.height < 0.45f) return SplitResult()
+    val x0 = (content.left * mask.width).roundToInt().coerceIn(0, mask.width - 1)
+    val x1 = (content.right * mask.width).roundToInt().coerceIn(x0 + 1, mask.width)
+    val y0 = (content.top * mask.height).roundToInt().coerceIn(0, mask.height - 1)
+    val y1 = (content.bottom * mask.height).roundToInt().coerceIn(y0 + 1, mask.height)
+    val centerStart = (x0 + (x1 - x0) * 0.38f).roundToInt()
+    val centerEnd = (x0 + (x1 - x0) * 0.62f).roundToInt().coerceAtLeast(centerStart + 1)
+    val gutterX = (centerStart until centerEnd).minByOrNull { mask.colInk[it] } ?: return SplitResult()
+    val gutterHalf = max(1, mask.width / 120)
+    val gutterLeft = (gutterX - gutterHalf).coerceAtLeast(x0)
+    val gutterRight = (gutterX + gutterHalf).coerceAtMost(x1 - 1)
+
+    var blankRows = 0
+    var inspectedRows = 0
+    for (y in y0 until y1) {
+        var ink = 0
+        for (x in gutterLeft..gutterRight) {
+            if (mask.foreground[y * mask.width + x]) ink += 1
+        }
+        if (ink <= 1) blankRows += 1
+        inspectedRows += 1
+    }
+    val blankRatio = blankRows.toFloat() / inspectedRows.coerceAtLeast(1)
+    val leftInk = sumInk(mask, x0, gutterLeft, y0, y1)
+    val rightInk = sumInk(mask, gutterRight + 1, x1, y0, y1)
+    val balance = min(leftInk, rightInk).toFloat() / max(leftInk, rightInk).coerceAtLeast(1)
+    val confidence = (blankRatio * 0.72f + balance * 0.28f).coerceIn(0f, 1f)
+    if (blankRatio < 0.50f || balance < 0.20f || confidence < 0.50f) {
+        return SplitResult(confidence = confidence)
+    }
+
+    return SplitResult(
+        regions = listOf(
+            PdfPageRegion(
+                tightBounds(mask, x0, gutterLeft, y0, y1),
+                PdfRegionRole.LEFT_COLUMN,
+            ),
+            PdfPageRegion(
+                tightBounds(mask, gutterRight + 1, x1, y0, y1),
+                PdfRegionRole.RIGHT_COLUMN,
+            ),
+        ),
+        confidence = confidence,
+    )
+}
+
+private fun sumInk(
+    mask: MaskAnalysis,
+    xStart: Int,
+    xEndExclusive: Int,
+    yStart: Int,
+    yEndExclusive: Int,
+): Int {
+    var sum = 0
+    val safeStart = xStart.coerceIn(0, mask.width)
+    val safeEnd = xEndExclusive.coerceIn(safeStart, mask.width)
+    for (y in yStart.coerceIn(0, mask.height) until yEndExclusive.coerceIn(0, mask.height)) {
+        for (x in safeStart until safeEnd) {
+            if (mask.foreground[y * mask.width + x]) sum += 1
+        }
+    }
+    return sum
+}
+
+private fun tightBounds(
+    mask: MaskAnalysis,
+    xStart: Int,
+    xEndExclusive: Int,
+    yStart: Int,
+    yEndExclusive: Int,
+): NormalizedPdfRect {
+    val safeX0 = xStart.coerceIn(0, mask.width - 1)
+    val safeX1 = xEndExclusive.coerceIn(safeX0 + 1, mask.width)
+    val safeY0 = yStart.coerceIn(0, mask.height - 1)
+    val safeY1 = yEndExclusive.coerceIn(safeY0 + 1, mask.height)
+    var minX = safeX1
+    var maxX = safeX0
+    var minY = safeY1
+    var maxY = safeY0
+    var found = false
+
+    for (y in safeY0 until safeY1) {
+        for (x in safeX0 until safeX1) {
+            if (mask.foreground[y * mask.width + x]) {
+                minX = min(minX, x)
+                maxX = max(maxX, x)
+                minY = min(minY, y)
+                maxY = max(maxY, y)
+                found = true
+            }
+        }
+    }
+    if (!found) {
+        return NormalizedPdfRect(
+            safeX0.toFloat() / mask.width,
+            safeY0.toFloat() / mask.height,
+            safeX1.toFloat() / mask.width,
+            safeY1.toFloat() / mask.height,
+        )
+    }
+
+    val padX = max(2, (mask.width * 0.010f).roundToInt())
+    val padY = max(2, (mask.height * 0.010f).roundToInt())
+    return NormalizedPdfRect(
+        left = (minX - padX).coerceAtLeast(safeX0).toFloat() / mask.width,
+        top = (minY - padY).coerceAtLeast(safeY0).toFloat() / mask.height,
+        right = (maxX + 1 + padX).coerceAtMost(safeX1).toFloat() / mask.width,
+        bottom = (maxY + 1 + padY).coerceAtMost(safeY1).toFloat() / mask.height,
     )
 }
