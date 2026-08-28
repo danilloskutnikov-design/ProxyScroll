@@ -37,23 +37,28 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NavigateBefore
 import androidx.compose.material.icons.filled.NavigateNext
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -69,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ColorFilter
@@ -140,8 +146,10 @@ private class ModernPdfBitmapCache(
 @Composable
 internal fun ModernPdfReaderScreen(
     document: LibraryDocument,
+    quoteCount: Int,
     onBack: () -> Unit,
     onProgressChanged: (Int, Int) -> Unit,
+    onSaveQuote: (Int, String, String) -> Unit,
     onScrollQuietChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -170,8 +178,10 @@ internal fun ModernPdfReaderScreen(
             else -> ModernPdfReaderReady(
                 document = document,
                 pageCount = documentInfo.pageCount,
+                quoteCount = quoteCount,
                 onBack = onBack,
                 onProgressChanged = onProgressChanged,
+                onSaveQuote = onSaveQuote,
                 onScrollQuietChanged = onScrollQuietChanged,
             )
         }
@@ -222,8 +232,10 @@ private fun PdfReaderError(
 private fun ModernPdfReaderReady(
     document: LibraryDocument,
     pageCount: Int,
+    quoteCount: Int,
     onBack: () -> Unit,
     onProgressChanged: (Int, Int) -> Unit,
+    onSaveQuote: (Int, String, String) -> Unit,
     onScrollQuietChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -243,6 +255,7 @@ private fun ModernPdfReaderReady(
     var isScrubbing by remember { mutableStateOf(false) }
     var readingProfile by remember(document.id) { mutableStateOf(PdfReadingProfile.ORIGINAL) }
     var layoutMode by remember(document.id) { mutableStateOf(PdfLayoutMode.ORIGINAL) }
+    var quoteDialogPage by remember(document.id) { mutableStateOf<Int?>(null) }
     val latestScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
 
     fun resetZoom() {
@@ -304,6 +317,18 @@ private fun ModernPdfReaderReady(
             reflowCache.clear()
             latestScrollQuietChanged(false)
         }
+    }
+
+    quoteDialogPage?.let { page ->
+        PdfQuoteDialog(
+            documentTitle = document.title,
+            page = page,
+            onDismiss = { quoteDialogPage = null },
+            onSave = { excerpt, note ->
+                onSaveQuote(page, excerpt, note)
+                quoteDialogPage = null
+            },
+        )
     }
 
     Box(
@@ -416,6 +441,30 @@ private fun ModernPdfReaderReady(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    }
+                    Box {
+                        IconButton(onClick = { quoteDialogPage = pagerState.currentPage }) {
+                            Icon(
+                                Icons.Default.FormatQuote,
+                                contentDescription = "Сохранить цитату или заметку",
+                            )
+                        }
+                        if (quoteCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = quoteCount.coerceAtMost(99).toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                )
+                            }
+                        }
                     }
                     IconButton(
                         enabled = layoutMode == PdfLayoutMode.ORIGINAL && currentScale > 1.01f,
@@ -558,6 +607,65 @@ private fun ModernPdfReaderReady(
             }
         }
     }
+}
+
+@Composable
+private fun PdfQuoteDialog(
+    documentTitle: String,
+    page: Int,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit,
+) {
+    var excerpt by remember(documentTitle, page) { mutableStateOf("") }
+    var note by remember(documentTitle, page) { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.FormatQuote, contentDescription = null) },
+        title = { Text("Цитата или заметка") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "$documentTitle · страница ${page + 1}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                OutlinedTextField(
+                    value = excerpt,
+                    onValueChange = { excerpt = it },
+                    label = { Text("Цитата") },
+                    placeholder = { Text("Введите или вставьте фрагмент") },
+                    minLines = 3,
+                    maxLines = 7,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("Моя заметка") },
+                    placeholder = { Text("Почему это важно?") },
+                    minLines = 2,
+                    maxLines = 5,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Номер страницы сохранится автоматически.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = excerpt.isNotBlank() || note.isNotBlank(),
+                onClick = { onSave(excerpt, note) },
+            ) {
+                Text("Сохранить")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
 
 @Composable
