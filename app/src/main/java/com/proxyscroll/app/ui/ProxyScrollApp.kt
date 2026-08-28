@@ -53,12 +53,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateBottomPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -165,12 +169,16 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
@@ -236,6 +244,7 @@ import com.proxyscroll.app.ui.theme.ProxySettingsFog
 import com.proxyscroll.app.ui.theme.ProxySurface
 import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import com.proxyscroll.app.ui.theme.ProxyThemeBackground
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -746,6 +755,10 @@ private fun NotesScreen(
     val searchInteractionSource = remember { MutableInteractionSource() }
     val searchFocusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val hapticFeedback = LocalHapticFeedback.current
+    val filterRevealDistancePx = remember(density) { with(density) { 54.dp.toPx() } }
+    val filterHoldSlopPx = remember(density) { with(density) { 10.dp.toPx() } }
     val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     val themePrimaryColor = MaterialTheme.colorScheme.primary
     var showGroupPicker by remember { mutableStateOf(false) }
@@ -957,7 +970,72 @@ private fun NotesScreen(
                 .fillMaxSize()
                 .padding(contentPadding)
                 .then(if (selectionMode) Modifier else Modifier.statusBarsPadding())
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 12.dp)
+                .pointerInput(selectionMode, showGroupPicker, searchExpanded) {
+                    if (selectionMode || showGroupPicker || searchExpanded) {
+                        return@pointerInput
+                    }
+                    coroutineScope {
+                        val gestureScope = this
+                        awaitEachGesture {
+                            val down = awaitFirstDown(
+                                requireUnconsumed = false,
+                                pass = PointerEventPass.Initial,
+                            )
+                            var lastPosition = down.position
+                            var holdOrigin = down.position
+                            var upwardTravel = 0f
+                            var pointerPressed = true
+                            var revealed = false
+                            var holdJob: Job? = null
+
+                            while (pointerPressed && !revealed) {
+                                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                val change = event.changes
+                                    .firstOrNull { it.id == down.id }
+                                    ?: break
+                                pointerPressed = change.pressed
+                                val deltaY = change.position.y - lastPosition.y
+                                lastPosition = change.position
+                                upwardTravel = if (deltaY < 0f) {
+                                    upwardTravel - deltaY
+                                } else {
+                                    (upwardTravel - deltaY * 1.35f).coerceAtLeast(0f)
+                                }
+
+                                if (pointerPressed && upwardTravel >= filterRevealDistancePx) {
+                                    val movedX = (
+                                        change.position.x - holdOrigin.x
+                                        ).absoluteValue
+                                    val movedY = (
+                                        change.position.y - holdOrigin.y
+                                        ).absoluteValue
+                                    if (holdJob == null ||
+                                        movedX > filterHoldSlopPx ||
+                                        movedY > filterHoldSlopPx
+                                    ) {
+                                        holdJob?.cancel()
+                                        holdOrigin = change.position
+                                        holdJob = gestureScope.launch {
+                                            delay(280)
+                                            if (pointerPressed && !revealed) {
+                                                hapticFeedback.performHapticFeedback(
+                                                    HapticFeedbackType.LongPress,
+                                                )
+                                                showGroupPicker = true
+                                                revealed = true
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    holdJob?.cancel()
+                                    holdJob = null
+                                }
+                            }
+                            holdJob?.cancel()
+                        }
+                    }
+                },
         ) {
             if (!selectionMode) {
                 Text(
@@ -2453,87 +2531,103 @@ internal fun MainSectionBar(
     searchSelected: Boolean = false,
     onOpenSearch: () -> Unit = {},
 ) {
-    ProxySurface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RectangleShape,
-        role = ProxySurfaceRole.OVERLAY,
-        strong = true,
-        interactive = false,
-        deformContent = false,
+    val navigationInset = WindowInsets.navigationBars
+        .asPaddingValues()
+        .calculateBottomPadding()
+    val contentHeight = 66.dp
+    val lensOverlap = 11.dp
+
+    // The central lens is a sibling of the clipped slab. Keeping it outside the
+    // slab's shape prevents its lower optical rim from being cut on 3-button nav.
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(contentHeight + navigationInset + lensOverlap),
     ) {
-        Row(
+        ProxySurface(
             modifier = Modifier
+                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .height(70.dp)
-                .padding(horizontal = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .height(contentHeight + navigationInset),
+            shape = RectangleShape,
+            role = ProxySurfaceRole.OVERLAY,
+            strong = true,
+            interactive = false,
+            deformContent = false,
         ) {
-            MainNavigationItem(
-                label = "Заметки",
-                selected = notesSelected && !searchSelected,
-                onClick = onOpenNotes,
-                icon = {
-                    Icon(Icons.Default.Description, contentDescription = null)
-                },
-                modifier = Modifier.weight(1f),
-            )
-            MainNavigationItem(
-                label = "Библиотека",
-                selected = !notesSelected && !searchSelected,
-                onClick = onOpenLibrary,
-                icon = {
-                    Icon(Icons.Default.MenuBook, contentDescription = null)
-                },
-                modifier = Modifier.weight(1f),
-            )
-            Column(
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .animatedClick(onClick = onPrimaryAction, pressedScale = 0.94f),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Top,
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(contentHeight)
+                    .padding(horizontal = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                ProxySurface(
+                MainNavigationItem(
+                    label = "Заметки",
+                    selected = notesSelected && !searchSelected,
+                    onClick = onOpenNotes,
+                    icon = {
+                        Icon(Icons.Default.Description, contentDescription = null)
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                MainNavigationItem(
+                    label = "Библиотека",
+                    selected = !notesSelected && !searchSelected,
+                    onClick = onOpenLibrary,
+                    icon = {
+                        Icon(Icons.Default.MenuBook, contentDescription = null)
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(
                     modifier = Modifier
-                        .offset(y = (-8).dp)
-                        .size(58.dp),
-                    shape = CircleShape,
-                    role = ProxySurfaceRole.BUTTON,
-                    strong = true,
-                    interactive = false,
-                    deformContent = false,
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = primaryActionDescription,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(31.dp),
-                        )
-                    }
-                }
+                        .weight(1f)
+                        .height(contentHeight),
+                )
+                MainNavigationItem(
+                    label = "Поиск",
+                    selected = searchSelected,
+                    onClick = onOpenSearch,
+                    icon = {
+                        Icon(Icons.Default.Search, contentDescription = null)
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                MainNavigationItem(
+                    label = "Настройки",
+                    selected = false,
+                    onClick = onOpenSettings,
+                    icon = {
+                        Icon(Icons.Default.Settings, contentDescription = null)
+                    },
+                    modifier = Modifier.weight(1f),
+                )
             }
-            MainNavigationItem(
-                label = "Поиск",
-                selected = searchSelected,
-                onClick = onOpenSearch,
-                icon = {
-                    Icon(Icons.Default.Search, contentDescription = null)
-                },
-                modifier = Modifier.weight(1f),
-            )
-            MainNavigationItem(
-                label = "Настройки",
-                selected = false,
-                onClick = onOpenSettings,
-                icon = {
-                    Icon(Icons.Default.Settings, contentDescription = null)
-                },
-                modifier = Modifier.weight(1f),
-            )
+        }
+
+        ProxySurface(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(2f)
+                .size(60.dp)
+                .animatedClick(onClick = onPrimaryAction, pressedScale = 0.94f),
+            shape = CircleShape,
+            role = ProxySurfaceRole.BUTTON,
+            strong = true,
+            interactive = false,
+            deformContent = false,
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = primaryActionDescription,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(31.dp),
+                )
+            }
         }
     }
 }
