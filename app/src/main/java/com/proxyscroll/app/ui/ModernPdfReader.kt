@@ -30,21 +30,25 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FormatQuote
@@ -61,7 +65,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -97,6 +100,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.proxyscroll.app.domain.LibraryDocument
+import com.proxyscroll.app.ui.theme.ProxySurface
+import com.proxyscroll.app.ui.theme.ProxySurfaceRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -105,9 +110,27 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+private data class PdfSourcePageInfo(
+    val index: Int,
+    val width: Int,
+    val height: Int,
+) {
+    val aspectRatio: Float
+        get() = width.toFloat() / height.coerceAtLeast(1)
+}
+
 private data class ModernPdfDocumentInfo(
-    val pageCount: Int = 0,
+    val sourcePages: List<PdfSourcePageInfo> = emptyList(),
+    val portraitDominant: Boolean = false,
     val error: String? = null,
+) {
+    val pageCount: Int get() = sourcePages.size
+}
+
+private data class ReaderVirtualPage(
+    val sourcePage: Int,
+    val slice: PdfPageSlice,
+    val expectedAspectRatio: Float,
 )
 
 internal enum class PdfReadingProfile(val label: String) {
@@ -127,6 +150,8 @@ private data class ReaderSavedSettings(
     val layoutMode: PdfLayoutMode,
     val navigationMode: PdfNavigationMode,
     val readingProfile: PdfReadingProfile,
+    val pageWidth: Float,
+    val brightness: Float,
 )
 
 private class ReaderSettingsStore(context: Context) {
@@ -146,10 +171,24 @@ private class ReaderSettingsStore(context: Context) {
             prefs.getString(prefix + "profile", prefs.getString("last_profile", null)),
             PdfReadingProfile.ORIGINAL,
         )
+        val pageWidth = prefs.getFloat(
+            prefix + "page_width",
+            prefs.getFloat("last_page_width", 0.985f),
+        ).coerceIn(0.84f, 1f)
+        val brightness = prefs.getFloat(
+            prefix + "brightness",
+            prefs.getFloat("last_brightness", 1f),
+        ).coerceIn(0.25f, 1f)
         return ReaderSavedSettings(
-            layoutMode = if (layout == PdfLayoutMode.ORIGINAL) PdfLayoutMode.ORIGINAL else PdfLayoutMode.SMART_CROP,
+            layoutMode = if (layout == PdfLayoutMode.ORIGINAL) {
+                PdfLayoutMode.ORIGINAL
+            } else {
+                PdfLayoutMode.SMART_CROP
+            },
             navigationMode = navigation,
             readingProfile = profile,
+            pageWidth = pageWidth,
+            brightness = brightness,
         )
     }
 
@@ -159,9 +198,41 @@ private class ReaderSettingsStore(context: Context) {
             .putString(prefix + "layout", settings.layoutMode.name)
             .putString(prefix + "navigation", settings.navigationMode.name)
             .putString(prefix + "profile", settings.readingProfile.name)
+            .putFloat(prefix + "page_width", settings.pageWidth)
+            .putFloat(prefix + "brightness", settings.brightness)
             .putString("last_layout", settings.layoutMode.name)
             .putString("last_navigation", settings.navigationMode.name)
             .putString("last_profile", settings.readingProfile.name)
+            .putFloat("last_page_width", settings.pageWidth)
+            .putFloat("last_brightness", settings.brightness)
+            .apply()
+    }
+
+    fun loadLastVirtualPage(documentId: String, layoutMode: PdfLayoutMode): Int? {
+        val key = "doc_${documentId}_last_${layoutMode.name.lowercase()}"
+        val value = prefs.getInt(key, -1)
+        return value.takeIf { it >= 0 }
+    }
+
+    fun saveLastVirtualPage(documentId: String, layoutMode: PdfLayoutMode, page: Int) {
+        prefs.edit()
+            .putInt("doc_${documentId}_last_${layoutMode.name.lowercase()}", page.coerceAtLeast(0))
+            .apply()
+    }
+
+    fun loadBookmarks(documentId: String): Set<Int> =
+        prefs.getStringSet("doc_${documentId}_bookmarks", emptySet())
+            .orEmpty()
+            .mapNotNull { it.toIntOrNull() }
+            .filter { it >= 0 }
+            .toSet()
+
+    fun saveBookmarks(documentId: String, bookmarks: Set<Int>) {
+        prefs.edit()
+            .putStringSet(
+                "doc_${documentId}_bookmarks",
+                bookmarks.mapTo(mutableSetOf()) { it.toString() },
+            )
             .apply()
     }
 
@@ -205,7 +276,7 @@ internal fun ModernPdfReaderScreen(
             documentInfo.pageCount <= 0 -> CircularProgressIndicator()
             else -> ModernPdfReaderReady(
                 document = document,
-                pageCount = documentInfo.pageCount,
+                documentInfo = documentInfo,
                 quoteCount = quoteCount,
                 onBack = onBack,
                 onProgressChanged = onProgressChanged,
@@ -259,7 +330,7 @@ private fun PdfReaderError(
 @Composable
 private fun ModernPdfReaderReady(
     document: LibraryDocument,
-    pageCount: Int,
+    documentInfo: ModernPdfDocumentInfo,
     quoteCount: Int,
     onBack: () -> Unit,
     onProgressChanged: (Int, Int) -> Unit,
@@ -269,29 +340,64 @@ private fun ModernPdfReaderReady(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val uri = remember(document.uri) { Uri.parse(document.uri) }
-    val renderCache = remember(document.uri) { SmartPdfReflowCache(maxEntries = 10) }
+    val renderCache = remember(document.uri) { SmartPdfReflowCache(maxEntries = 14) }
     val settingsStore = remember(context) { ReaderSettingsStore(context.applicationContext) }
     val saved = remember(document.id) { settingsStore.load(document.id) }
-    val initialPage = document.lastPage.coerceIn(0, pageCount - 1)
-    val pagerState = rememberPagerState(initialPage = initialPage) { pageCount }
-    val continuousState = rememberLazyListState(initialFirstVisibleItemIndex = initialPage)
+    val initialReaderPages = remember(documentInfo, saved.layoutMode) {
+        buildReaderPages(documentInfo, saved.layoutMode)
+    }
+    val initialPage = remember(document.id, initialReaderPages, saved.layoutMode) {
+        val storedVirtual = settingsStore.loadLastVirtualPage(document.id, saved.layoutMode)
+        when {
+            storedVirtual != null && storedVirtual in initialReaderPages.indices -> storedVirtual
+            else -> initialReaderPages.indexOfFirst { it.sourcePage == document.lastPage }
+                .takeIf { it >= 0 } ?: 0
+        }
+    }
 
     var controlsVisible by remember(document.id) { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pageJumpVisible by remember { mutableStateOf(false) }
-    var currentPage by remember(document.id) { mutableIntStateOf(initialPage) }
-    var scrubPage by remember(document.id) { mutableFloatStateOf(initialPage.toFloat()) }
-    var isScrubbing by remember { mutableStateOf(false) }
+    var bookmarksVisible by remember { mutableStateOf(false) }
     var readingProfile by remember(document.id) { mutableStateOf(saved.readingProfile) }
     var layoutMode by remember(document.id) { mutableStateOf(saved.layoutMode) }
     var navigationMode by remember(document.id) { mutableStateOf(saved.navigationMode) }
+    var pageWidth by remember(document.id) { mutableFloatStateOf(saved.pageWidth) }
+    var brightness by remember(document.id) { mutableFloatStateOf(saved.brightness) }
+    var bookmarks by remember(document.id) { mutableStateOf(settingsStore.loadBookmarks(document.id)) }
+    var pendingSourceAfterLayout by remember(document.id) { mutableStateOf<Int?>(null) }
+
+    val readerPages = remember(documentInfo, layoutMode) {
+        buildReaderPages(documentInfo, layoutMode)
+    }
+    val pageCount = readerPages.size.coerceAtLeast(1)
+    val pagerState = rememberPagerState(initialPage = initialPage.coerceIn(0, pageCount - 1)) {
+        readerPages.size.coerceAtLeast(1)
+    }
+    val continuousState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialPage.coerceIn(0, pageCount - 1),
+    )
+
+    var currentPage by remember(document.id) {
+        mutableIntStateOf(initialPage.coerceIn(0, pageCount - 1))
+    }
+    var scrubPage by remember(document.id) {
+        mutableFloatStateOf(initialPage.coerceIn(0, pageCount - 1).toFloat())
+    }
+    var isScrubbing by remember { mutableStateOf(false) }
     var activeAtmosphere by remember(document.id) { mutableStateOf<PdfPageAtmosphere?>(null) }
     var resetZoomToken by remember(document.id) { mutableIntStateOf(0) }
     var currentScale by remember(document.id) { mutableFloatStateOf(1f) }
     var navigationInteractionActive by remember { mutableStateOf(false) }
     var pageInteractionActive by remember { mutableStateOf(false) }
-    var quoteDialogPage by remember(document.id) { mutableStateOf<Int?>(null) }
+    var quoteDialogSourcePage by remember(document.id) { mutableStateOf<Int?>(null) }
     val latestScrollQuietChanged by rememberUpdatedState(onScrollQuietChanged)
+
+    val currentVirtualPage = readerPages.getOrNull(currentPage)
+        ?: readerPages.firstOrNull()
+        ?: ReaderVirtualPage(0, PdfPageSlice.FULL, 0.72f)
+    val currentSourcePage = currentVirtualPage.sourcePage
+    val currentBookmarked = currentSourcePage in bookmarks
 
     fun resetZoom() {
         resetZoomToken += 1
@@ -313,50 +419,110 @@ private fun ModernPdfReaderReady(
         }
     }
 
-    LaunchedEffect(layoutMode, navigationMode, readingProfile, document.id) {
+    fun goToSourcePage(sourcePage: Int) {
+        val target = readerPages.indexOfFirst { it.sourcePage == sourcePage }
+            .takeIf { it >= 0 } ?: return
+        goToPage(target)
+    }
+
+    fun setLayoutMode(next: PdfLayoutMode) {
+        if (next == layoutMode) return
+        pendingSourceAfterLayout = currentSourcePage
+        layoutMode = next
+    }
+
+    fun toggleCurrentBookmark() {
+        val next = bookmarks.toMutableSet()
+        if (!next.add(currentSourcePage)) next.remove(currentSourcePage)
+        bookmarks = next
+        settingsStore.saveBookmarks(document.id, next)
+    }
+
+    LaunchedEffect(layoutMode, navigationMode, readingProfile, pageWidth, brightness, document.id) {
         settingsStore.save(
             document.id,
-            ReaderSavedSettings(layoutMode, navigationMode, readingProfile),
+            ReaderSavedSettings(
+                layoutMode = layoutMode,
+                navigationMode = navigationMode,
+                readingProfile = readingProfile,
+                pageWidth = pageWidth,
+                brightness = brightness,
+            ),
         )
     }
+
+    LaunchedEffect(layoutMode, readerPages.size) {
+        if (readerPages.isEmpty()) return@LaunchedEffect
+        val pendingSource = pendingSourceAfterLayout
+        val stored = settingsStore.loadLastVirtualPage(document.id, layoutMode)
+        val target = when {
+            pendingSource != null -> readerPages.indexOfFirst { it.sourcePage == pendingSource }
+                .takeIf { it >= 0 } ?: 0
+            stored != null && stored in readerPages.indices -> stored
+            else -> readerPages.indexOfFirst { it.sourcePage == document.lastPage }
+                .takeIf { it >= 0 } ?: 0
+        }
+        pendingSourceAfterLayout = null
+        currentPage = target
+        scrubPage = target.toFloat()
+        resetZoom()
+        pagerState.scrollToPage(target)
+        continuousState.scrollToItem(target)
+        activeAtmosphere = renderCache.get(
+            readerPages[target].sourcePage,
+            layoutMode,
+            readerPages[target].slice,
+        )?.atmosphere
+    }
+
     LaunchedEffect(navigationMode) {
         resetZoom()
+        val safe = currentPage.coerceIn(0, pageCount - 1)
         when (navigationMode) {
-            PdfNavigationMode.PAGED -> pagerState.scrollToPage(currentPage)
-            PdfNavigationMode.CONTINUOUS -> continuousState.scrollToItem(currentPage)
+            PdfNavigationMode.PAGED -> pagerState.scrollToPage(safe)
+            PdfNavigationMode.CONTINUOUS -> continuousState.scrollToItem(safe)
         }
     }
-    LaunchedEffect(layoutMode) {
-        resetZoom()
-        activeAtmosphere = renderCache.get(currentPage, layoutMode)?.atmosphere
-    }
-    LaunchedEffect(controlsVisible, menuExpanded, quoteDialogPage, pageJumpVisible, isScrubbing) {
-        if (controlsVisible && !menuExpanded && quoteDialogPage == null && !pageJumpVisible && !isScrubbing) {
-            kotlinx.coroutines.delay(3600)
+
+    LaunchedEffect(controlsVisible, menuExpanded, quoteDialogSourcePage, pageJumpVisible, bookmarksVisible, isScrubbing) {
+        if (
+            controlsVisible &&
+            !menuExpanded &&
+            quoteDialogSourcePage == null &&
+            !pageJumpVisible &&
+            !bookmarksVisible &&
+            !isScrubbing
+        ) {
+            kotlinx.coroutines.delay(3800)
             controlsVisible = false
         }
     }
+
     LaunchedEffect(navigationMode, pagerState) {
         if (navigationMode != PdfNavigationMode.PAGED) return@LaunchedEffect
         snapshotFlow { pagerState.isScrollInProgress }
             .distinctUntilChanged()
             .collectLatest { navigationInteractionActive = it }
     }
+
     LaunchedEffect(navigationMode, continuousState) {
         if (navigationMode != PdfNavigationMode.CONTINUOUS) return@LaunchedEffect
         snapshotFlow { continuousState.isScrollInProgress }
             .distinctUntilChanged()
             .collectLatest { navigationInteractionActive = it }
     }
+
     LaunchedEffect(navigationInteractionActive, pageInteractionActive) {
         latestScrollQuietChanged(navigationInteractionActive || pageInteractionActive)
     }
+
     LaunchedEffect(navigationMode, pagerState, pageCount) {
         if (navigationMode != PdfNavigationMode.PAGED) return@LaunchedEffect
         snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
             .collectLatest { page -> currentPage = page.coerceIn(0, pageCount - 1) }
     }
+
     LaunchedEffect(navigationMode, continuousState, pageCount) {
         if (navigationMode != PdfNavigationMode.CONTINUOUS) return@LaunchedEffect
         snapshotFlow {
@@ -369,27 +535,43 @@ private fun ModernPdfReaderReady(
             .distinctUntilChanged()
             .collectLatest { page -> currentPage = page.coerceIn(0, pageCount - 1) }
     }
-    LaunchedEffect(currentPage, pageCount) {
-        if (!isScrubbing) scrubPage = currentPage.toFloat()
-        onProgressChanged(currentPage, pageCount)
-        renderCache.get(currentPage, layoutMode)?.atmosphere?.let { activeAtmosphere = it }
+
+    LaunchedEffect(currentPage, pageCount, layoutMode, readerPages) {
+        if (readerPages.isEmpty()) return@LaunchedEffect
+        val safe = currentPage.coerceIn(0, readerPages.lastIndex)
+        val virtual = readerPages[safe]
+        if (!isScrubbing) scrubPage = safe.toFloat()
+        settingsStore.saveLastVirtualPage(document.id, layoutMode, safe)
+        onProgressChanged(virtual.sourcePage, documentInfo.pageCount)
+        renderCache.get(virtual.sourcePage, layoutMode, virtual.slice)?.atmosphere?.let {
+            activeAtmosphere = it
+        }
     }
-    LaunchedEffect(currentPage, layoutMode, document.uri) {
+
+    LaunchedEffect(currentPage, layoutMode, document.uri, readerPages) {
+        if (readerPages.isEmpty()) return@LaunchedEffect
         withContext(Dispatchers.IO) {
-            listOf(currentPage - 2, currentPage - 1, currentPage, currentPage + 1, currentPage + 2)
-                .filter { it in 0 until pageCount }
-                .forEach { page ->
+            (currentPage - 3..currentPage + 3)
+                .filter { it in readerPages.indices }
+                .forEach { virtualIndex ->
+                    val virtual = readerPages[virtualIndex]
                     renderSmartPdfPage(
                         context = context,
                         uri = uri,
-                        requestedPage = page,
+                        requestedPage = virtual.sourcePage,
                         mode = layoutMode,
                         cache = renderCache,
+                        slice = virtual.slice,
                     )
                 }
         }
-        renderCache.get(currentPage, layoutMode)?.atmosphere?.let { activeAtmosphere = it }
+        val safe = currentPage.coerceIn(0, readerPages.lastIndex)
+        val virtual = readerPages[safe]
+        renderCache.get(virtual.sourcePage, layoutMode, virtual.slice)?.atmosphere?.let {
+            activeAtmosphere = it
+        }
     }
+
     DisposableEffect(renderCache) {
         onDispose {
             renderCache.clear()
@@ -397,17 +579,18 @@ private fun ModernPdfReaderReady(
         }
     }
 
-    quoteDialogPage?.let { page ->
+    quoteDialogSourcePage?.let { sourcePage ->
         PdfQuoteDialog(
             documentTitle = document.title,
-            page = page,
-            onDismiss = { quoteDialogPage = null },
+            page = sourcePage,
+            onDismiss = { quoteDialogSourcePage = null },
             onSave = { excerpt, note ->
-                onSaveQuote(page, excerpt, note)
-                quoteDialogPage = null
+                onSaveQuote(sourcePage, excerpt, note)
+                quoteDialogSourcePage = null
             },
         )
     }
+
     if (pageJumpVisible) {
         PageJumpDialog(
             currentPage = currentPage,
@@ -417,6 +600,18 @@ private fun ModernPdfReaderReady(
                 pageJumpVisible = false
                 controlsVisible = true
                 goToPage(page)
+            },
+        )
+    }
+
+    if (bookmarksVisible) {
+        BookmarksDialog(
+            bookmarks = bookmarks,
+            onDismiss = { bookmarksVisible = false },
+            onOpenPage = { sourcePage ->
+                bookmarksVisible = false
+                controlsVisible = true
+                goToSourcePage(sourcePage)
             },
         )
     }
@@ -444,24 +639,27 @@ private fun ModernPdfReaderReady(
                     modifier = Modifier.fillMaxSize(),
                     userScrollEnabled = layoutMode != PdfLayoutMode.ORIGINAL || currentScale <= 1.01f,
                     beyondViewportPageCount = 1,
-                    pageSpacing = 10.dp,
-                ) { page ->
+                    pageSpacing = 8.dp,
+                ) { virtualIndex ->
+                    val virtual = readerPages.getOrNull(virtualIndex) ?: return@HorizontalPager
                     PagedPdfPage(
                         documentUri = document.uri,
-                        page = page,
+                        virtualPage = virtual,
+                        virtualIndex = virtualIndex,
                         mode = layoutMode,
                         readingProfile = readingProfile,
+                        pageWidth = pageWidth,
                         cache = renderCache,
-                        isCurrent = page == currentPage,
+                        isCurrent = virtualIndex == currentPage,
                         resetZoomToken = resetZoomToken,
                         onScaleChanged = { scale ->
-                            if (page == currentPage) currentScale = scale
+                            if (virtualIndex == currentPage) currentScale = scale
                         },
                         onInteractionChanged = { active ->
-                            if (page == currentPage) pageInteractionActive = active
+                            if (virtualIndex == currentPage) pageInteractionActive = active
                         },
                         onAtmosphere = { atmosphere ->
-                            if (page == currentPage) activeAtmosphere = atmosphere
+                            if (virtualIndex == currentPage) activeAtmosphere = atmosphere
                         },
                         onTap = { xFraction ->
                             when {
@@ -476,25 +674,38 @@ private fun ModernPdfReaderReady(
                 PdfNavigationMode.CONTINUOUS -> LazyColumn(
                     state = continuousState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 78.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 76.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    items(pageCount, key = { it }) { page ->
+                    itemsIndexed(
+                        items = readerPages,
+                        key = { index, page -> "$index:${page.sourcePage}:${page.slice.name}" },
+                    ) { virtualIndex, virtual ->
                         ContinuousPdfPage(
                             documentUri = document.uri,
-                            page = page,
+                            virtualPage = virtual,
+                            virtualIndex = virtualIndex,
                             mode = layoutMode,
                             readingProfile = readingProfile,
+                            pageWidth = pageWidth,
                             cache = renderCache,
-                            isCurrent = page == currentPage,
+                            isCurrent = virtualIndex == currentPage,
                             onAtmosphere = { atmosphere ->
-                                if (page == currentPage) activeAtmosphere = atmosphere
+                                if (virtualIndex == currentPage) activeAtmosphere = atmosphere
                             },
                             onCenterTap = { controlsVisible = !controlsVisible },
                         )
                     }
                 }
             }
+        }
+
+        if (brightness < 0.995f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = ((1f - brightness) * 0.72f).coerceIn(0f, 0.56f))),
+            )
         }
 
         AnimatedVisibility(
@@ -507,19 +718,28 @@ private fun ModernPdfReaderReady(
         ) {
             ReaderTopBar(
                 title = document.title,
-                currentPage = currentPage,
-                pageCount = pageCount,
                 quoteCount = quoteCount,
+                bookmarked = currentBookmarked,
                 menuExpanded = menuExpanded,
                 layoutMode = layoutMode,
                 navigationMode = navigationMode,
                 readingProfile = readingProfile,
+                pageWidth = pageWidth,
+                brightness = brightness,
+                bookmarkCount = bookmarks.size,
                 onBack = onBack,
-                onQuote = { quoteDialogPage = currentPage },
+                onQuote = { quoteDialogSourcePage = currentSourcePage },
+                onToggleBookmark = ::toggleCurrentBookmark,
+                onOpenBookmarks = {
+                    menuExpanded = false
+                    bookmarksVisible = true
+                },
                 onMenuExpanded = { menuExpanded = it },
-                onLayoutMode = { layoutMode = it },
+                onLayoutMode = ::setLayoutMode,
                 onNavigationMode = { navigationMode = it },
                 onReadingProfile = { readingProfile = it },
+                onPageWidth = { pageWidth = it.coerceIn(0.84f, 1f) },
+                onBrightness = { brightness = it.coerceIn(0.25f, 1f) },
             )
         }
 
@@ -573,29 +793,36 @@ private fun ModernPdfReaderReady(
 @Composable
 private fun ReaderTopBar(
     title: String,
-    currentPage: Int,
-    pageCount: Int,
     quoteCount: Int,
+    bookmarked: Boolean,
     menuExpanded: Boolean,
     layoutMode: PdfLayoutMode,
     navigationMode: PdfNavigationMode,
     readingProfile: PdfReadingProfile,
+    pageWidth: Float,
+    brightness: Float,
+    bookmarkCount: Int,
     onBack: () -> Unit,
     onQuote: () -> Unit,
+    onToggleBookmark: () -> Unit,
+    onOpenBookmarks: () -> Unit,
     onMenuExpanded: (Boolean) -> Unit,
     onLayoutMode: (PdfLayoutMode) -> Unit,
     onNavigationMode: (PdfNavigationMode) -> Unit,
     onReadingProfile: (PdfReadingProfile) -> Unit,
+    onPageWidth: (Float) -> Unit,
+    onBrightness: (Float) -> Unit,
 ) {
-    Surface(
+    ProxySurface(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
             .padding(horizontal = 10.dp, vertical = 6.dp),
         shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-        tonalElevation = 8.dp,
-        shadowElevation = 8.dp,
+        role = ProxySurfaceRole.OVERLAY,
+        strong = true,
+        interactive = false,
+        deformContent = false,
     ) {
         Row(
             modifier = Modifier
@@ -614,11 +841,18 @@ private fun ReaderTopBar(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "${currentPage + 1} / $pageCount · ${layoutMode.label} · ${navigationMode.label}",
+                    "${layoutMode.label} · ${navigationMode.label}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onToggleBookmark) {
+                Icon(
+                    imageVector = if (bookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                    contentDescription = if (bookmarked) "Убрать закладку" else "Добавить закладку",
+                    tint = if (bookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 )
             }
             IconButton(onClick = onQuote) {
@@ -640,10 +874,16 @@ private fun ReaderTopBar(
                     layoutMode = layoutMode,
                     navigationMode = navigationMode,
                     readingProfile = readingProfile,
+                    pageWidth = pageWidth,
+                    brightness = brightness,
+                    bookmarkCount = bookmarkCount,
                     onDismiss = { onMenuExpanded(false) },
                     onLayoutMode = onLayoutMode,
                     onNavigationMode = onNavigationMode,
                     onReadingProfile = onReadingProfile,
+                    onPageWidth = onPageWidth,
+                    onBrightness = onBrightness,
+                    onOpenBookmarks = onOpenBookmarks,
                 )
             }
         }
@@ -663,19 +903,20 @@ private fun ReaderNavigationDock(
     onPageJump: () -> Unit,
 ) {
     val previewPage = scrubPage.roundToInt().coerceIn(0, (pageCount - 1).coerceAtLeast(0))
-    Surface(
+    ProxySurface(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 12.dp, vertical = 8.dp),
         shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-        tonalElevation = 10.dp,
-        shadowElevation = 10.dp,
+        role = ProxySurfaceRole.OVERLAY,
+        strong = true,
+        interactive = false,
+        deformContent = false,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -711,13 +952,21 @@ private fun ReaderNavigationDock(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("1", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    if (isScrubbing) "Перейти на ${previewPage + 1}" else "Тап по номеру — перейти к странице",
+                    "1",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(pageCount.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    if (isScrubbing) "Страница ${previewPage + 1}" else "Нажмите номер для перехода",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    pageCount.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -735,11 +984,12 @@ private fun ReaderPassivePagePill(
             .navigationBarsPadding()
             .padding(bottom = 8.dp),
     ) {
-        Surface(
+        ProxySurface(
             shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-            tonalElevation = 6.dp,
-            shadowElevation = 5.dp,
+            role = ProxySurfaceRole.OVERLAY,
+            strong = true,
+            interactive = false,
+            deformContent = false,
         ) {
             Text(
                 "${currentPage + 1} / $pageCount",
@@ -756,14 +1006,24 @@ private fun ReaderSettingsMenu(
     layoutMode: PdfLayoutMode,
     navigationMode: PdfNavigationMode,
     readingProfile: PdfReadingProfile,
+    pageWidth: Float,
+    brightness: Float,
+    bookmarkCount: Int,
     onDismiss: () -> Unit,
     onLayoutMode: (PdfLayoutMode) -> Unit,
     onNavigationMode: (PdfNavigationMode) -> Unit,
     onReadingProfile: (PdfReadingProfile) -> Unit,
+    onPageWidth: (Float) -> Unit,
+    onBrightness: (Float) -> Unit,
+    onOpenBookmarks: () -> Unit,
 ) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier.width(286.dp),
+    ) {
         Text(
-            "Размер страницы",
+            "Страница",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
@@ -795,6 +1055,37 @@ private fun ReaderSettingsMenu(
         }
         HorizontalDivider()
         Text(
+            "Экран",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+            Text(
+                "Ширина страницы · ${(pageWidth * 100).roundToInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = pageWidth,
+                onValueChange = onPageWidth,
+                valueRange = 0.84f..1f,
+                steps = 0,
+            )
+            Text(
+                "Яркость · ${(brightness * 100).roundToInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = brightness,
+                onValueChange = onBrightness,
+                valueRange = 0.25f..1f,
+                steps = 0,
+            )
+        }
+        HorizontalDivider()
+        Text(
             "Фильтр",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             style = MaterialTheme.typography.labelMedium,
@@ -809,6 +1100,12 @@ private fun ReaderSettingsMenu(
                 onClick = { onReadingProfile(profile) },
             )
         }
+        HorizontalDivider()
+        DropdownMenuItem(
+            text = { Text("Закладки · $bookmarkCount") },
+            leadingIcon = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
+            onClick = onOpenBookmarks,
+        )
     }
 }
 
@@ -847,11 +1144,54 @@ private fun PageJumpDialog(
 }
 
 @Composable
+private fun BookmarksDialog(
+    bookmarks: Set<Int>,
+    onDismiss: () -> Unit,
+    onOpenPage: (Int) -> Unit,
+) {
+    val sorted = remember(bookmarks) { bookmarks.sorted() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Закладки") },
+        text = {
+            if (sorted.isEmpty()) {
+                Text("Закладок пока нет. Нажмите значок закладки в верхней панели на нужной странице.")
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    items(sorted) { sourcePage ->
+                        TextButton(
+                            onClick = { onOpenPage(sourcePage) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "PDF · страница ${sourcePage + 1}",
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Start,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Готово") }
+        },
+    )
+}
+
+@Composable
 private fun PagedPdfPage(
     documentUri: String,
-    page: Int,
+    virtualPage: ReaderVirtualPage,
+    virtualIndex: Int,
     mode: PdfLayoutMode,
     readingProfile: PdfReadingProfile,
+    pageWidth: Float,
     cache: SmartPdfReflowCache,
     isCurrent: Boolean,
     resetZoomToken: Int,
@@ -861,21 +1201,24 @@ private fun PagedPdfPage(
     onTap: (Float) -> Unit,
 ) {
     val context = LocalContext.current
-    var viewportWidth by remember(page, mode) { mutableIntStateOf(1) }
-    val cached = remember(documentUri, page, mode) { cache.get(page, mode) }
+    var viewportWidth by remember(virtualIndex, mode) { mutableIntStateOf(1) }
+    val cached = remember(documentUri, virtualPage.sourcePage, virtualPage.slice, mode) {
+        cache.get(virtualPage.sourcePage, mode, virtualPage.slice)
+    }
     val render by produceState(
         initialValue = cached ?: SmartPdfPageRender(),
         key1 = documentUri,
-        key2 = page,
+        key2 = virtualPage,
         key3 = mode,
     ) {
         if (value.regions.isEmpty() && value.error == null) {
             value = renderSmartPdfPageAsync(
                 context = context,
                 uri = Uri.parse(documentUri),
-                requestedPage = page,
+                requestedPage = virtualPage.sourcePage,
                 mode = mode,
                 cache = cache,
+                slice = virtualPage.slice,
             )
         }
     }
@@ -888,7 +1231,7 @@ private fun PagedPdfPage(
         modifier = Modifier
             .fillMaxSize()
             .onGloballyPositioned { viewportWidth = it.size.width.coerceAtLeast(1) }
-            .pointerInput(page, mode, viewportWidth) {
+            .pointerInput(virtualIndex, mode, viewportWidth) {
                 detectTapGestures { position ->
                     onTap((position.x / viewportWidth.coerceAtLeast(1)).coerceIn(0f, 1f))
                 }
@@ -901,14 +1244,16 @@ private fun PagedPdfPage(
             mode == PdfLayoutMode.ORIGINAL -> ZoomablePdfRegion(
                 region = render.regions.first(),
                 readingProfile = readingProfile,
+                pageWidth = pageWidth,
                 resetZoomToken = resetZoomToken,
                 onScaleChanged = onScaleChanged,
                 onInteractionChanged = onInteractionChanged,
             )
             else -> SmartPagedRegions(
-                page = page,
+                virtualIndex = virtualIndex,
                 regions = render.regions,
                 readingProfile = readingProfile,
+                pageWidth = pageWidth,
                 onInteractionChanged = if (isCurrent) onInteractionChanged else { _ -> },
             )
         }
@@ -917,9 +1262,10 @@ private fun PagedPdfPage(
 
 @Composable
 private fun SmartPagedRegions(
-    page: Int,
+    virtualIndex: Int,
     regions: List<SmartPdfRegionImage>,
     readingProfile: PdfReadingProfile,
+    pageWidth: Float,
     onInteractionChanged: (Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -936,47 +1282,53 @@ private fun SmartPagedRegions(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         itemsIndexed(regions) { index, region ->
             PdfRegionImage(
                 region = region,
                 readingProfile = readingProfile,
-                contentDescription = "Страница ${page + 1}, фрагмент ${index + 1}",
+                pageWidth = pageWidth,
+                contentDescription = "Страница ${virtualIndex + 1}, фрагмент ${index + 1}",
             )
         }
-        item { Spacer(Modifier.height(6.dp)) }
+        item { Spacer(Modifier.height(4.dp)) }
     }
 }
 
 @Composable
 private fun ContinuousPdfPage(
     documentUri: String,
-    page: Int,
+    virtualPage: ReaderVirtualPage,
+    virtualIndex: Int,
     mode: PdfLayoutMode,
     readingProfile: PdfReadingProfile,
+    pageWidth: Float,
     cache: SmartPdfReflowCache,
     isCurrent: Boolean,
     onAtmosphere: (PdfPageAtmosphere) -> Unit,
     onCenterTap: () -> Unit,
 ) {
     val context = LocalContext.current
-    val cached = remember(documentUri, page, mode) { cache.get(page, mode) }
+    val cached = remember(documentUri, virtualPage.sourcePage, virtualPage.slice, mode) {
+        cache.get(virtualPage.sourcePage, mode, virtualPage.slice)
+    }
     val render by produceState(
         initialValue = cached ?: SmartPdfPageRender(),
         key1 = documentUri,
-        key2 = page,
+        key2 = virtualPage,
         key3 = mode,
     ) {
         if (value.regions.isEmpty() && value.error == null) {
             value = renderSmartPdfPageAsync(
                 context = context,
                 uri = Uri.parse(documentUri),
-                requestedPage = page,
+                requestedPage = virtualPage.sourcePage,
                 mode = mode,
                 cache = cache,
+                slice = virtualPage.slice,
             )
         }
     }
@@ -989,39 +1341,39 @@ private fun ContinuousPdfPage(
         render.atmosphere?.edgeColorArgb ?: AndroidColor.WHITE,
         readingProfile,
     )
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(pageBackground)
-            .pointerInput(page, mode) { detectTapGestures { onCenterTap() } }
-            .padding(horizontal = 4.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .pointerInput(virtualIndex, mode) { detectTapGestures { onCenterTap() } }
+            .padding(vertical = 3.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-        ) {
-            Text(
-                (page + 1).toString(),
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
         when {
             render.error != null -> PdfPageError(render.error.orEmpty())
             render.regions.isEmpty() -> {
-                Spacer(Modifier.height(36.dp))
-                CircularProgressIndicator()
-                Spacer(Modifier.height(36.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(pageWidth)
+                        .aspectRatio(virtualPage.expectedAspectRatio.coerceIn(0.18f, 2.4f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
             }
-            else -> render.regions.forEachIndexed { index, region ->
-                PdfRegionImage(
-                    region = region,
-                    readingProfile = readingProfile,
-                    contentDescription = "Страница ${page + 1}, фрагмент ${index + 1}",
-                )
+            else -> Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                render.regions.forEachIndexed { index, region ->
+                    PdfRegionImage(
+                        region = region,
+                        readingProfile = readingProfile,
+                        pageWidth = pageWidth,
+                        contentDescription = "Страница ${virtualIndex + 1}, фрагмент ${index + 1}",
+                    )
+                }
             }
         }
     }
@@ -1031,6 +1383,7 @@ private fun ContinuousPdfPage(
 private fun PdfRegionImage(
     region: SmartPdfRegionImage,
     readingProfile: PdfReadingProfile,
+    pageWidth: Float,
     contentDescription: String,
 ) {
     Image(
@@ -1039,14 +1392,14 @@ private fun PdfRegionImage(
         contentScale = ContentScale.FillWidth,
         colorFilter = pdfReadingColorFilter(readingProfile),
         modifier = Modifier
-            .fillMaxWidth(0.985f)
+            .fillMaxWidth(pageWidth.coerceIn(0.84f, 1f))
             .aspectRatio(region.aspectRatio.coerceAtLeast(0.1f))
             .shadow(
-                elevation = 8.dp,
-                shape = RoundedCornerShape(3.dp),
+                elevation = 6.dp,
+                shape = RoundedCornerShape(2.dp),
                 clip = false,
             )
-            .clip(RoundedCornerShape(3.dp)),
+            .clip(RoundedCornerShape(2.dp)),
     )
 }
 
@@ -1054,6 +1407,7 @@ private fun PdfRegionImage(
 private fun ZoomablePdfRegion(
     region: SmartPdfRegionImage,
     readingProfile: PdfReadingProfile,
+    pageWidth: Float,
     resetZoomToken: Int,
     onScaleChanged: (Float) -> Unit,
     onInteractionChanged: (Boolean) -> Unit,
@@ -1082,7 +1436,7 @@ private fun ZoomablePdfRegion(
         val imageAspect = region.aspectRatio.coerceAtLeast(0.1f)
         val pageModifier = if (imageAspect >= viewportAspect) {
             Modifier
-                .fillMaxWidth(0.97f)
+                .fillMaxWidth((pageWidth * 0.99f).coerceIn(0.82f, 0.99f))
                 .aspectRatio(imageAspect)
         } else {
             Modifier
@@ -1103,11 +1457,11 @@ private fun ZoomablePdfRegion(
                     translationY = offset.y
                 }
                 .shadow(
-                    elevation = 10.dp,
-                    shape = RoundedCornerShape(3.dp),
+                    elevation = 8.dp,
+                    shape = RoundedCornerShape(2.dp),
                     clip = false,
                 )
-                .clip(RoundedCornerShape(3.dp))
+                .clip(RoundedCornerShape(2.dp))
                 .pointerInput(resetZoomToken, viewportWidth, viewportHeight) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
@@ -1280,7 +1634,7 @@ private fun PdfQuoteDialog(
     var note by remember(page) { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Цитата · стр. ${page + 1}") },
+        title = { Text("Цитата · PDF стр. ${page + 1}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -1318,6 +1672,42 @@ private fun PdfQuoteDialog(
     )
 }
 
+private fun buildReaderPages(
+    documentInfo: ModernPdfDocumentInfo,
+    layoutMode: PdfLayoutMode,
+): List<ReaderVirtualPage> = buildList {
+    documentInfo.sourcePages.forEach { source ->
+        val splitLandscape = layoutMode == PdfLayoutMode.SMART_CROP &&
+            documentInfo.portraitDominant &&
+            source.aspectRatio >= 1.15f
+        if (splitLandscape) {
+            val halfAspect = (source.width * 0.5f) / source.height.coerceAtLeast(1)
+            add(
+                ReaderVirtualPage(
+                    sourcePage = source.index,
+                    slice = PdfPageSlice.LEFT_HALF,
+                    expectedAspectRatio = halfAspect,
+                ),
+            )
+            add(
+                ReaderVirtualPage(
+                    sourcePage = source.index,
+                    slice = PdfPageSlice.RIGHT_HALF,
+                    expectedAspectRatio = halfAspect,
+                ),
+            )
+        } else {
+            add(
+                ReaderVirtualPage(
+                    sourcePage = source.index,
+                    slice = PdfPageSlice.FULL,
+                    expectedAspectRatio = source.aspectRatio,
+                ),
+            )
+        }
+    }
+}
+
 private fun readModernPdfDocumentInfo(
     context: Context,
     uri: Uri,
@@ -1327,7 +1717,28 @@ private fun readModernPdfDocumentInfo(
     descriptor.use { file ->
         PdfRenderer(file).use { renderer ->
             if (renderer.pageCount <= 0) error("В документе нет страниц")
-            ModernPdfDocumentInfo(pageCount = renderer.pageCount)
+            val pages = buildList {
+                repeat(renderer.pageCount) { index ->
+                    renderer.openPage(index).use { page ->
+                        add(
+                            PdfSourcePageInfo(
+                                index = index,
+                                width = page.width.coerceAtLeast(1),
+                                height = page.height.coerceAtLeast(1),
+                            ),
+                        )
+                    }
+                }
+            }
+            val portraitCount = pages.count { it.height > it.width * 1.08f }
+            val landscapeCount = pages.count { it.width > it.height * 1.08f }
+            val portraitShare = portraitCount.toFloat() / pages.size.coerceAtLeast(1)
+            ModernPdfDocumentInfo(
+                sourcePages = pages,
+                portraitDominant = portraitCount >= 2 &&
+                    portraitShare >= 0.55f &&
+                    portraitCount > landscapeCount,
+            )
         }
     }
 }.getOrElse { error ->
