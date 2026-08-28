@@ -2447,13 +2447,14 @@ internal fun MainSectionBar(
     searchSelected: Boolean = false,
     onOpenSearch: () -> Unit = {},
 ) {
+    val dividerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
             .drawBehind {
                 drawLine(
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f),
+                    color = dividerColor,
                     start = Offset.Zero,
                     end = Offset(size.width, 0f),
                     strokeWidth = 1.dp.toPx(),
