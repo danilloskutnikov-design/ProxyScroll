@@ -279,6 +279,9 @@ fun ProxyScrollApp(
     onReadingSettingsChanged: (ReadingSettings) -> Unit,
     activeGroupFilter: String?,
     onActiveGroupFilterChanged: (String?) -> Unit,
+    incomingPdfUri: String? = null,
+    incomingPdfTitle: String? = null,
+    onIncomingPdfConsumed: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val libraryState by libraryViewModel.uiState.collectAsStateWithLifecycle()
@@ -292,10 +295,25 @@ fun ProxyScrollApp(
     var showLibrary by remember { mutableStateOf(false) }
     var pdfReaderOpen by remember { mutableStateOf(false) }
     var openPdfDocument by remember { mutableStateOf<LibraryDocument?>(null) }
+    var pdfInitialSourcePage by remember { mutableStateOf<Int?>(null) }
     var showTrash by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var typingQuiet by remember { mutableStateOf(false) }
     var scrollingQuiet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(incomingPdfUri) {
+        val uri = incomingPdfUri?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        val document = libraryViewModel.importPdf(
+            uri = uri,
+            title = incomingPdfTitle.orEmpty().ifBlank { "PDF-документ" },
+        )
+        showLibrary = true
+        openPdfDocument = document
+        pdfInitialSourcePage = null
+        pdfReaderOpen = true
+        onIncomingPdfConsumed()
+    }
+
     val motionCompensation = rememberMotionCompensationState(
         sensorsEnabled = labsSettings.sensorsEnabled,
     )
@@ -446,9 +464,11 @@ fun ProxyScrollApp(
                                 quoteCount = libraryState.quotes.count {
                                     it.documentId == document.id
                                 },
+                                initialSourcePage = pdfInitialSourcePage,
                                 onBack = {
                                     pdfReaderOpen = false
                                     openPdfDocument = null
+                                    pdfInitialSourcePage = null
                                 },
                                 onProgressChanged = { page, pageCount ->
                                     libraryViewModel.updateProgress(document, page, pageCount)
@@ -488,11 +508,23 @@ fun ProxyScrollApp(
                             onImport = { uri, title ->
                                 val document = libraryViewModel.importPdf(uri, title)
                                 openPdfDocument = document
+                                pdfInitialSourcePage = null
                                 pdfReaderOpen = true
                             },
                             onOpenDocument = { document ->
                                 openPdfDocument = document
+                                pdfInitialSourcePage = null
                                 pdfReaderOpen = true
+                            },
+                            onOpenQuote = { quote ->
+                                val document = libraryState.documents.firstOrNull {
+                                    it.id == quote.documentId
+                                }
+                                if (document != null) {
+                                    openPdfDocument = document
+                                    pdfInitialSourcePage = quote.page
+                                    pdfReaderOpen = true
+                                }
                             },
                             onEditDocument = libraryViewModel::updateAppearance,
                             onUpdateQuote = libraryViewModel::updateQuote,

@@ -1,5 +1,6 @@
 package com.proxyscroll.app.ui
 
+import android.content.ClipData
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -127,6 +129,7 @@ internal fun TactileLibraryScreen(
     onFilterChange: (LibraryFilter) -> Unit,
     onImport: (String, String) -> Unit,
     onOpenDocument: (LibraryDocument) -> Unit,
+    onOpenQuote: (BookQuote) -> Unit,
     onEditDocument: (
         LibraryDocument,
         String,
@@ -136,7 +139,7 @@ internal fun TactileLibraryScreen(
         String?,
         LibraryReadingStatus,
     ) -> Unit,
-    onUpdateQuote: (BookQuote, String, String) -> Unit,
+    onUpdateQuote: (BookQuote, String, String, String) -> Unit,
     onDeleteQuote: (BookQuote) -> Unit,
     onDelete: (LibraryDocument) -> Unit,
 ) {
@@ -206,8 +209,8 @@ internal fun TactileLibraryScreen(
             quote = quote,
             document = state.documents.firstOrNull { it.id == quote.documentId },
             onDismiss = { editingQuote = null },
-            onSave = { excerpt, note ->
-                onUpdateQuote(quote, excerpt, note)
+            onSave = { title, excerpt, note ->
+                onUpdateQuote(quote, title, excerpt, note)
                 editingQuote = null
             },
             onDelete = {
@@ -378,6 +381,7 @@ internal fun TactileLibraryScreen(
                             QuoteCarousel(
                                 quotes = state.visibleQuotes,
                                 documents = state.documents,
+                                onOpen = onOpenQuote,
                                 onEdit = { editingQuote = it },
                             )
                         }
@@ -808,6 +812,7 @@ private fun ReadingStatusRail(
 private fun QuoteCarousel(
     quotes: List<BookQuote>,
     documents: List<LibraryDocument>,
+    onOpen: (BookQuote) -> Unit,
     onEdit: (BookQuote) -> Unit,
 ) {
     LazyRow(
@@ -820,29 +825,45 @@ private fun QuoteCarousel(
             QuoteCard(
                 quote = quote,
                 document = document,
-                onClick = { onEdit(quote) },
+                onOpen = { onOpen(quote) },
+                onEdit = { onEdit(quote) },
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun QuoteCard(
     quote: BookQuote,
     document: LibraryDocument?,
-    onClick: () -> Unit,
+    onOpen: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val accent = document?.let(::tactileCoverAccent) ?: MaterialTheme.colorScheme.primary
     ProxySurface(
         modifier = Modifier
             .width(252.dp)
             .heightIn(min = 174.dp)
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onOpen,
+                onLongClick = onEdit,
+            ),
         role = ProxySurfaceRole.CARD,
         strong = true,
         interactive = false,
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            if (quote.title.isNotBlank()) {
+                Text(
+                    text = quote.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(7.dp))
+            }
             Row(verticalAlignment = Alignment.Top) {
                 Box(
                     Modifier
@@ -901,7 +922,7 @@ private fun QuoteCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "стр. ${quote.page + 1} · нажмите, чтобы изменить",
+                        "стр. ${quote.page + 1} · тап — открыть · удержать — изменить",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1224,6 +1245,12 @@ private fun BookAppearanceDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = { shareLibraryPdf(context, document) }) {
+                    Icon(Icons.Default.Share, contentDescription = null)
+                    Spacer(Modifier.width(7.dp))
+                    Text("Экспорт / поделиться PDF")
+                }
+                Spacer(Modifier.height(6.dp))
                 TextButton(onClick = onDelete) {
                     Icon(
                         Icons.Default.Delete,
@@ -1261,9 +1288,10 @@ private fun BookQuoteEditDialog(
     quote: BookQuote,
     document: LibraryDocument?,
     onDismiss: () -> Unit,
-    onSave: (String, String) -> Unit,
+    onSave: (String, String, String) -> Unit,
     onDelete: () -> Unit,
 ) {
+    var title by remember(quote.id) { mutableStateOf(quote.title) }
     var excerpt by remember(quote.id) { mutableStateOf(quote.excerpt) }
     var note by remember(quote.id) { mutableStateOf(quote.note) }
     AlertDialog(
@@ -1276,6 +1304,13 @@ private fun BookQuoteEditDialog(
                     "Страница ${quote.page + 1}",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
+                )
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Название заметки") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = excerpt,
@@ -1307,7 +1342,7 @@ private fun BookQuoteEditDialog(
         confirmButton = {
             TextButton(
                 enabled = excerpt.isNotBlank() || note.isNotBlank(),
-                onClick = { onSave(excerpt, note) },
+                onClick = { onSave(title, excerpt, note) },
             ) {
                 Text("Сохранить")
             }
@@ -1722,6 +1757,19 @@ private fun tactileDocumentCountLabel(count: Int): String {
         mod10 == 1 -> "документ"
         mod10 in 2..4 -> "документа"
         else -> "документов"
+    }
+}
+
+private fun shareLibraryPdf(context: android.content.Context, document: LibraryDocument) {
+    runCatching {
+        val uri = Uri.parse(document.uri)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri(document.sourceTitle, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(send, "Экспорт PDF"))
     }
 }
 
