@@ -266,7 +266,7 @@ patch_file(tactile, [
 
 patch_file(tactile, [
     (
-        "private fun tactilePdfDisplayName(context: android.content.Context, uri: Uri): String {\n",
+        "private fun tactilePdfDisplayName(\n    context: android.content.Context,\n    uri: Uri,\n): String {\n",
         """private fun shareLibraryPdf(context: android.content.Context, document: LibraryDocument) {
     runCatching {
         val uri = Uri.parse(document.uri)
@@ -280,7 +280,10 @@ patch_file(tactile, [
     }
 }
 
-private fun tactilePdfDisplayName(context: android.content.Context, uri: Uri): String {
+private fun tactilePdfDisplayName(
+    context: android.content.Context,
+    uri: Uri,
+): String {
 """,
     ),
 ])
@@ -299,10 +302,6 @@ patch_file(app, [
     (
         "    var scrollingQuiet by remember { mutableStateOf(false) }\n    val motionCompensation = rememberMotionCompensationState(\n",
         "    var scrollingQuiet by remember { mutableStateOf(false) }\n\n    LaunchedEffect(incomingPdfUri) {\n        val uri = incomingPdfUri?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect\n        val document = libraryViewModel.importPdf(\n            uri = uri,\n            title = incomingPdfTitle.orEmpty().ifBlank { \"PDF-документ\" },\n        )\n        showLibrary = true\n        openPdfDocument = document\n        pdfInitialSourcePage = null\n        pdfReaderOpen = true\n        onIncomingPdfConsumed()\n    }\n\n    val motionCompensation = rememberMotionCompensationState(\n",
-    ),
-    (
-        "                                document = document,\n                                quoteCount = libraryState.quotes.count {\n",
-        "                                document = document,\n                                quoteCount = libraryState.quotes.count {\n",
     ),
     (
         "                                    it.documentId == document.id\n                                },\n                                onBack = {\n",
