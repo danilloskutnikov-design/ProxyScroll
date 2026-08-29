@@ -140,16 +140,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun captureIncomingPdf(intent: Intent?) {
-        val incomingUri = when (intent?.action) {
-            Intent.ACTION_VIEW -> intent.data
+        val requestIntent = intent ?: return
+        val incomingUri = when (requestIntent.action) {
+            Intent.ACTION_VIEW -> requestIntent.data
             Intent.ACTION_SEND -> {
                 @Suppress("DEPRECATION")
-                intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                requestIntent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
             }
             else -> null
         } ?: return
 
-        val mime = intent.type ?: runCatching { contentResolver.getType(incomingUri) }.getOrNull()
+        val mime = requestIntent.type
+            ?: runCatching { contentResolver.getType(incomingUri) }.getOrNull()
         val looksLikePdf = mime.equals("application/pdf", ignoreCase = true) ||
             mime.equals("application/x-pdf", ignoreCase = true) ||
             incomingUri.toString().substringBefore('?').endsWith(".pdf", ignoreCase = true)
@@ -157,7 +159,7 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             val request = withContext(Dispatchers.IO) {
-                prepareIncomingPdf(incomingUri, intent.flags)
+                prepareIncomingPdf(incomingUri, requestIntent.flags)
             }
             if (request != null) incomingPdfState.value = request
         }
