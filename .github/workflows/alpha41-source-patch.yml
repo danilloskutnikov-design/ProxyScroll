@@ -1,0 +1,37 @@
+name: Alpha 41 source patch
+
+on:
+  push:
+    branches: [codex/alpha41-reader-core-repair]
+    paths:
+      - "tools/alpha41_patch.py"
+      - ".github/workflows/alpha41-source-patch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/alpha41-reader-core-repair
+          fetch-depth: 0
+      - name: Apply targeted source patches
+        run: python3 tools/alpha41_patch.py
+      - name: Commit patches
+        run: |
+          set -euo pipefail
+          git config user.name "ProxyScroll Alpha Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/src/main/java/com/proxyscroll/app/ui/ModernPdfReader.kt \
+                  app/src/main/java/com/proxyscroll/app/ui/TactileLibraryScreen.kt \
+                  app/src/main/java/com/proxyscroll/app/ui/ProxyScrollApp.kt
+          if git diff --cached --quiet; then
+            echo "No patch changes to commit"
+            exit 0
+          fi
+          git commit -m "Alpha 41: repair reader interactions and note navigation"
+          git push origin HEAD:codex/alpha41-reader-core-repair
