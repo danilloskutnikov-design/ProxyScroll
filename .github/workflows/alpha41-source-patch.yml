@@ -5,6 +5,7 @@ on:
     branches: [codex/alpha41-reader-core-repair]
     paths:
       - "tools/alpha41_patch.py"
+      - "tools/alpha41_runner.py"
       - ".github/workflows/alpha41-source-patch.yml"
   workflow_dispatch:
 
@@ -20,7 +21,7 @@ jobs:
           ref: codex/alpha41-reader-core-repair
           fetch-depth: 0
       - name: Apply targeted source patches
-        run: python3 tools/alpha41_patch.py
+        run: python3 tools/alpha41_runner.py
       - name: Commit patches
         run: |
           set -euo pipefail
