@@ -1,6 +1,8 @@
 package com.proxyscroll.app.ui
 
+import android.content.ClipData
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -55,6 +57,7 @@ import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NavigateBefore
 import androidx.compose.material.icons.filled.NavigateNext
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -246,6 +249,7 @@ private class ReaderSettingsStore(context: Context) {
 internal fun ModernPdfReaderScreen(
     document: LibraryDocument,
     quoteCount: Int,
+    initialSourcePage: Int? = null,
     onBack: () -> Unit,
     onProgressChanged: (Int, Int) -> Unit,
     onSaveQuote: (Int, String, String) -> Unit,
@@ -278,6 +282,7 @@ internal fun ModernPdfReaderScreen(
                 document = document,
                 documentInfo = documentInfo,
                 quoteCount = quoteCount,
+                initialSourcePage = initialSourcePage,
                 onBack = onBack,
                 onProgressChanged = onProgressChanged,
                 onSaveQuote = onSaveQuote,
@@ -332,6 +337,7 @@ private fun ModernPdfReaderReady(
     document: LibraryDocument,
     documentInfo: ModernPdfDocumentInfo,
     quoteCount: Int,
+    initialSourcePage: Int?,
     onBack: () -> Unit,
     onProgressChanged: (Int, Int) -> Unit,
     onSaveQuote: (Int, String, String) -> Unit,
@@ -346,9 +352,17 @@ private fun ModernPdfReaderReady(
     val initialReaderPages = remember(documentInfo, saved.layoutMode) {
         buildReaderPages(documentInfo, saved.layoutMode)
     }
-    val initialPage = remember(document.id, initialReaderPages, saved.layoutMode) {
+    val initialPage = remember(
+        document.id,
+        initialReaderPages,
+        saved.layoutMode,
+        initialSourcePage,
+    ) {
         val storedVirtual = settingsStore.loadLastVirtualPage(document.id, saved.layoutMode)
         when {
+            initialSourcePage != null -> initialReaderPages
+                .indexOfFirst { it.sourcePage == initialSourcePage }
+                .takeIf { it >= 0 } ?: 0
             storedVirtual != null && storedVirtual in initialReaderPages.indices -> storedVirtual
             else -> initialReaderPages.indexOfFirst { it.sourcePage == document.lastPage }
                 .takeIf { it >= 0 } ?: 0
@@ -637,7 +651,7 @@ private fun ModernPdfReaderReady(
                 PdfNavigationMode.PAGED -> HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
-                    userScrollEnabled = layoutMode != PdfLayoutMode.ORIGINAL || currentScale <= 1.01f,
+                    userScrollEnabled = currentScale <= 1.01f,
                     beyondViewportPageCount = 1,
                     pageSpacing = 8.dp,
                 ) { virtualIndex ->
@@ -740,6 +754,7 @@ private fun ModernPdfReaderReady(
                 onReadingProfile = { readingProfile = it },
                 onPageWidth = { pageWidth = it.coerceIn(0.84f, 1f) },
                 onBrightness = { brightness = it.coerceIn(0.25f, 1f) },
+                onShare = { sharePdfDocument(context, document) },
             )
         }
 
@@ -812,6 +827,7 @@ private fun ReaderTopBar(
     onReadingProfile: (PdfReadingProfile) -> Unit,
     onPageWidth: (Float) -> Unit,
     onBrightness: (Float) -> Unit,
+    onShare: () -> Unit,
 ) {
     ProxySurface(
         modifier = Modifier
@@ -884,6 +900,7 @@ private fun ReaderTopBar(
                     onPageWidth = onPageWidth,
                     onBrightness = onBrightness,
                     onOpenBookmarks = onOpenBookmarks,
+                    onShare = onShare,
                 )
             }
         }
@@ -1016,6 +1033,7 @@ private fun ReaderSettingsMenu(
     onPageWidth: (Float) -> Unit,
     onBrightness: (Float) -> Unit,
     onOpenBookmarks: () -> Unit,
+    onShare: () -> Unit,
 ) {
     DropdownMenu(
         expanded = expanded,
@@ -1105,6 +1123,15 @@ private fun ReaderSettingsMenu(
             text = { Text("Закладки · $bookmarkCount") },
             leadingIcon = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
             onClick = onOpenBookmarks,
+        )
+        HorizontalDivider()
+        DropdownMenuItem(
+            text = { Text("Экспорт / поделиться PDF") },
+            leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+            onClick = {
+                onDismiss()
+                onShare()
+            },
         )
     }
 }
@@ -1241,20 +1268,13 @@ private fun PagedPdfPage(
         when {
             render.error != null -> PdfPageError(render.error.orEmpty())
             render.regions.isEmpty() -> CircularProgressIndicator()
-            mode == PdfLayoutMode.ORIGINAL -> ZoomablePdfRegion(
+            else -> ZoomablePdfRegion(
                 region = render.regions.first(),
                 readingProfile = readingProfile,
                 pageWidth = pageWidth,
                 resetZoomToken = resetZoomToken,
                 onScaleChanged = onScaleChanged,
                 onInteractionChanged = onInteractionChanged,
-            )
-            else -> SmartPagedRegions(
-                virtualIndex = virtualIndex,
-                regions = render.regions,
-                readingProfile = readingProfile,
-                pageWidth = pageWidth,
-                onInteractionChanged = if (isCurrent) onInteractionChanged else { _ -> },
             )
         }
     }
@@ -1367,7 +1387,7 @@ private fun ContinuousPdfPage(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 render.regions.forEachIndexed { index, region ->
-                    PdfRegionImage(
+                    ZoomableContinuousPdfRegion(
                         region = region,
                         readingProfile = readingProfile,
                         pageWidth = pageWidth,
@@ -1376,6 +1396,77 @@ private fun ContinuousPdfPage(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ZoomableContinuousPdfRegion(
+    region: SmartPdfRegionImage,
+    readingProfile: PdfReadingProfile,
+    pageWidth: Float,
+    contentDescription: String,
+) {
+    var scale by remember(region.image.width, region.image.height) { mutableFloatStateOf(1f) }
+    var offset by remember(region.image.width, region.image.height) { mutableStateOf(Offset.Zero) }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth(pageWidth.coerceIn(0.84f, 1f))
+            .aspectRatio(region.aspectRatio.coerceAtLeast(0.1f))
+            .clipToBounds(),
+        contentAlignment = Alignment.Center,
+    ) {
+        val boxWidth = constraints.maxWidth.coerceAtLeast(1).toFloat()
+        val boxHeight = constraints.maxHeight.coerceAtLeast(1).toFloat()
+        Image(
+            bitmap = region.image,
+            contentDescription = contentDescription,
+            contentScale = ContentScale.FillWidth,
+            colorFilter = pdfReadingColorFilter(readingProfile),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                }
+                .shadow(
+                    elevation = 6.dp,
+                    shape = RoundedCornerShape(2.dp),
+                    clip = false,
+                )
+                .clip(RoundedCornerShape(2.dp))
+                .pointerInput(region.image.width, region.image.height) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        var transformed = false
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val zoom = event.calculateZoom()
+                            val pan = event.calculatePan()
+                            val transform = event.changes.size > 1 || scale > 1.01f
+                            if (transform) {
+                                transformed = true
+                                val nextScale = (scale * zoom).coerceIn(1f, 5f)
+                                val maxX = boxWidth * (nextScale - 1f) * 0.5f
+                                val maxY = boxHeight * (nextScale - 1f) * 0.5f
+                                scale = nextScale
+                                offset = if (nextScale <= 1.01f) {
+                                    Offset.Zero
+                                } else {
+                                    Offset(
+                                        (offset.x + pan.x).coerceIn(-maxX, maxX),
+                                        (offset.y + pan.y).coerceIn(-maxY, maxY),
+                                    )
+                                }
+                                event.changes.forEach { it.consume() }
+                            }
+                            if (event.changes.none { it.pressed }) break
+                        }
+                        if (!transformed && scale <= 1.01f) offset = Offset.Zero
+                    }
+                },
+        )
     }
 }
 
@@ -1678,8 +1769,7 @@ private fun buildReaderPages(
 ): List<ReaderVirtualPage> = buildList {
     documentInfo.sourcePages.forEach { source ->
         val splitLandscape = layoutMode == PdfLayoutMode.SMART_CROP &&
-            documentInfo.portraitDominant &&
-            source.aspectRatio >= 1.15f
+            source.aspectRatio >= 1.18f
         if (splitLandscape) {
             val halfAspect = (source.width * 0.5f) / source.height.coerceAtLeast(1)
             add(
@@ -1743,4 +1833,17 @@ private fun readModernPdfDocumentInfo(
     }
 }.getOrElse { error ->
     ModernPdfDocumentInfo(error = error.message ?: "Не удалось открыть документ")
+}
+
+private fun sharePdfDocument(context: Context, document: LibraryDocument) {
+    runCatching {
+        val uri = Uri.parse(document.uri)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri(document.sourceTitle, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(send, "Экспорт PDF"))
+    }
 }

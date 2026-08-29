@@ -88,6 +88,7 @@ class PreferencesDocumentLibraryRepository(
                             createdAt = createdAt,
                             updatedAt = item.optLong("updatedAt", createdAt),
                             isFavorite = item.optBoolean("isFavorite"),
+                            title = item.optString("title"),
                         ),
                     )
                 }
@@ -137,6 +138,7 @@ class PreferencesDocumentLibraryRepository(
                 put("createdAt", quote.createdAt)
                 put("updatedAt", quote.updatedAt)
                 put("isFavorite", quote.isFavorite)
+                put("title", quote.title)
             })
         }
         preferences.edit().putString(KEY_QUOTES, array.toString()).apply()

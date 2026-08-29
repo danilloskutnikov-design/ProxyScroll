@@ -123,26 +123,35 @@ class LibraryViewModel(
     ): BookQuote? {
         if (excerpt.isBlank() && note.isBlank()) return null
         val now = System.currentTimeMillis()
+        val cleanExcerpt = excerpt.trim()
+        val cleanNote = note.trim()
         val quote = BookQuote(
             id = UUID.randomUUID().toString(),
             documentId = document.id,
-            excerpt = excerpt.trim(),
-            note = note.trim(),
+            excerpt = cleanExcerpt,
+            note = cleanNote,
             page = page.coerceAtLeast(0),
             createdAt = now,
+            title = defaultQuoteTitle(cleanExcerpt, cleanNote),
         )
         repository.upsertQuote(quote)
         refresh()
         return quote
     }
 
-    fun updateQuote(quote: BookQuote, excerpt: String, note: String) {
+    fun updateQuote(
+        quote: BookQuote,
+        title: String,
+        excerpt: String,
+        note: String,
+    ) {
         if (excerpt.isBlank() && note.isBlank()) {
             deleteQuote(quote)
             return
         }
         repository.upsertQuote(
             quote.copy(
+                title = title.trim().ifBlank { defaultQuoteTitle(excerpt, note) },
                 excerpt = excerpt.trim(),
                 note = note.trim(),
                 updatedAt = System.currentTimeMillis(),
@@ -198,6 +207,18 @@ class LibraryViewModel(
             query = query,
             filter = filter,
         )
+    }
+
+    private fun defaultQuoteTitle(excerpt: String, note: String): String {
+        val source = note.trim().ifBlank { excerpt.trim() }
+        if (source.isBlank()) return "Заметка"
+        return source
+            .lineSequence()
+            .firstOrNull()
+            .orEmpty()
+            .trim()
+            .take(48)
+            .ifBlank { "Заметка" }
     }
 
     private fun defaultCoverStyle(seed: String): LibraryCoverStyle {

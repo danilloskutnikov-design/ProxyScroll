@@ -41,6 +41,7 @@ data class BookQuote(
     val createdAt: Long,
     val updatedAt: Long = createdAt,
     val isFavorite: Boolean = false,
+    val title: String = "",
 )
 
 interface DocumentLibraryRepository {
