@@ -30,16 +30,7 @@ jobs:
           profile: pixel_2
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            adb shell settings put system accelerometer_rotation 0
-            adb shell settings put system user_rotation 0
-            gradle --no-daemon :app:connectedDebugAndroidTest
-      - name: Collect device evidence
-        if: always()
-        run: |
-          mkdir -p device-evidence
-          adb pull /sdcard/Android/data/com.proxyscroll.app/files/qa device-evidence/ || true
-          adb logcat -d -s AndroidRuntime > device-evidence/runtime.txt || true
+          script: bash scripts/visual-smoke.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

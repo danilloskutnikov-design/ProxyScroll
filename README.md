@@ -1,6 +1,17 @@
 # ProxyScroll
 
-ProxyScroll is an offline-first notes and reading app for Android. The current build is **0.24.0-alpha37**.
+ProxyScroll is an offline-first notes and reading app for Android. The current build is **0.29.0-alpha42**.
+
+## Alpha 42 — Living Glass
+
+- A floating glass dock shows the actual list scrolling beneath it, with rounded edge refraction on Android 13+ and hardware blur on Android 12.
+- Thin frosted note cards, polished action lenses, soft contact light and gentle press feedback keep the text clear.
+- Note pinning and formatting actions use 48 dp targets. The editor keeps a stable text measure when focus changes.
+- Settings keep their title, close action and tabs fixed while controls scroll. Library filters appear above the shelves.
+- Ambient light settles in reading mode and during typing. LiteLife stays static; lower-end rendering retains a simpler material.
+- The Alpha 41 package ID, persisted data and signing key are retained for an in-place update.
+
+Implementation and validation: [Living Glass notes](docs/LIVING_GLASS_ALPHA42.md).
 
 ## Alpha features
 
@@ -10,7 +21,7 @@ ProxyScroll is an offline-first notes and reading app for Android. The current b
 - Font-size adjustment in two-point steps or by an exact custom value
 - Selection controls below the content plane, with native handles and smart word, sentence, and paragraph expansion
 - Range-based rich-text rendering that keeps IME input independent from formatting
-- Rich formatting preserved in note previews and local storage
+- Rich formatting preserved in readers, the editor and local storage; consistently sized list excerpts
 - Three input-motion modes: Direct, Gentle, and Flowing
 - Search by title or body
 - Pin and delete notes
