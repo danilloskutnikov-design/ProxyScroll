@@ -97,6 +97,8 @@ import com.proxyscroll.app.domain.BookQuote
 import com.proxyscroll.app.domain.LibraryCoverStyle
 import com.proxyscroll.app.domain.LibraryDocument
 import com.proxyscroll.app.domain.LibraryReadingStatus
+import com.proxyscroll.app.ui.theme.rememberGlassBackdrop
+import com.proxyscroll.app.ui.theme.glassBackdropSource
 import com.proxyscroll.app.ui.theme.ProxyInsetSurface
 import com.proxyscroll.app.ui.theme.ProxySurface
 import com.proxyscroll.app.ui.theme.ProxySurfaceRole
@@ -143,6 +145,7 @@ internal fun TactileLibraryScreen(
     onDeleteQuote: (BookQuote) -> Unit,
     onDelete: (LibraryDocument) -> Unit,
 ) {
+    val glassBackdrop = rememberGlassBackdrop()
     val context = LocalContext.current
     var searchExpanded by remember { mutableStateOf(false) }
     var filtersExpanded by remember { mutableStateOf(state.filter != LibraryFilter.ALL) }
@@ -271,6 +274,7 @@ internal fun TactileLibraryScreen(
         containerColor = Color.Transparent,
         bottomBar = {
             MainSectionBar(
+                backdrop = glassBackdrop,
                 notesSelected = false,
                 onOpenNotes = onOpenNotes,
                 onOpenLibrary = {},
@@ -285,8 +289,10 @@ internal fun TactileLibraryScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(contentPadding)
-                .statusBarsPadding(),
+                .padding(top = contentPadding.calculateTopPadding())
+                .statusBarsPadding()
+                .glassBackdropSource(glassBackdrop),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = contentPadding.calculateBottomPadding() + 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -303,6 +309,16 @@ internal fun TactileLibraryScreen(
                     onFiltersToggle = { filtersExpanded = !filtersExpanded },
                 )
             }
+
+                if (filtersExpanded || state.filter != LibraryFilter.ALL) {
+                    item {
+                        ReadingStatusRail(
+                            selected = state.filter,
+                            onSelected = onFilterChange,
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    }
+                }
 
             if (state.documents.isEmpty()) {
                 item {
@@ -339,7 +355,7 @@ internal fun TactileLibraryScreen(
                         LibrarySectionTitle(
                             icon = { Icon(Icons.Default.Bookmarks, contentDescription = null) },
                             title = "Моя полка",
-                            detail = "${state.visibleDocuments.size} · удерживайте для оформления",
+                            detail = "${state.visibleDocuments.size} книг",
                             modifier = Modifier.padding(horizontal = 12.dp),
                         )
                         if (state.visibleDocuments.isEmpty()) {
@@ -355,15 +371,7 @@ internal fun TactileLibraryScreen(
                     }
                 }
 
-                if (filtersExpanded || state.filter != LibraryFilter.ALL) {
-                    item {
-                        ReadingStatusRail(
-                            selected = state.filter,
-                            onSelected = onFilterChange,
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                        )
-                    }
-                }
+
 
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -428,7 +436,7 @@ private fun LibraryHeader(
                     text = if (documentCount == 0) {
                         "Личное пространство для чтения"
                     } else {
-                        "$documentCount ${tactileDocumentCountLabel(documentCount)} · локально"
+                        "$documentCount ${tactileDocumentCountLabel(documentCount)} · всегда под рукой"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -438,7 +446,7 @@ private fun LibraryHeader(
                 Icon(
                     if (searchExpanded) Icons.Default.Close else Icons.Default.Search,
                     contentDescription = if (searchExpanded) "Закрыть поиск" else "Поиск",
-                    modifier = Modifier.size(30.dp),
+                    modifier = Modifier.size(24.dp),
                 )
             }
             IconButton(onClick = onFiltersToggle) {
@@ -532,7 +540,7 @@ private fun ContinueReadingShelf(
                 .clickable(onClick = onOpen),
             role = ProxySurfaceRole.CARD,
             strong = true,
-            interactive = false,
+            interactive = true,
         ) {
             Row(
                 modifier = Modifier.padding(10.dp),

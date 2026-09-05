@@ -1,0 +1,50 @@
+name: Visual device check
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - uses: android-actions/setup-android@v3
+      - name: Enable hardware acceleration
+        run: sudo chmod 666 /dev/kvm
+      - name: Native glass and user flows
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb shell settings put system accelerometer_rotation 0
+            adb shell settings put system user_rotation 0
+            gradle --no-daemon :app:connectedDebugAndroidTest
+      - name: Collect device evidence
+        if: always()
+        run: |
+          mkdir -p device-evidence
+          adb pull /sdcard/Android/data/com.proxyscroll.app/files/qa device-evidence/ || true
+          adb logcat -d -s AndroidRuntime > device-evidence/runtime.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Alpha42-device-evidence
+          path: |
+            device-evidence
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results
