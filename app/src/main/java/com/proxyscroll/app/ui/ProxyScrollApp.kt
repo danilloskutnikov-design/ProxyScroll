@@ -47,6 +47,14 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
+import com.proxyscroll.app.ui.theme.GlassBackdrop
+import com.proxyscroll.app.ui.theme.rememberGlassBackdrop
+import com.proxyscroll.app.ui.theme.glassBackdropSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -350,7 +358,7 @@ fun ProxyScrollApp(
         selectedTheme = selectedTheme,
         interfaceShape = interfaceShape,
         stainSettings = stainSettings,
-        motionQuiet = typingQuiet || scrollingQuiet,
+        motionQuiet = typingQuiet || scrollingQuiet || readerOpen || pdfReaderOpen,
     ) {
         Box(Modifier.fillMaxSize()) {
             Box(
@@ -685,7 +693,7 @@ private fun Modifier.animatedClick(
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val theme = LocalProxyVisualStyle.current.theme
-    val stableSurface = theme == AppTheme.LITE_LIFE || theme == AppTheme.LIQUID_GLASS
+    val stableSurface = theme == AppTheme.LITE_LIFE
     if (stableSurface) {
         return this.clickable(
             interactionSource = interactionSource,
@@ -696,11 +704,11 @@ private fun Modifier.animatedClick(
     }
     val pressed by interactionSource.collectIsPressedAsState()
     val motionProfile = LocalMaterialMotionProfile.current
-    val effectivePressedScale = 1f - (1f - pressedScale) * motionProfile.deformation
+    val effectivePressedScale = 1f - (1f - pressedScale.coerceAtLeast(0.96f)) * motionProfile.deformation
     val scale by animateFloatAsState(
         targetValue = if (pressed && enabled) effectivePressedScale else 1f,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
+            dampingRatio = 0.88f,
             stiffness = Spring.StiffnessMedium,
         ),
         label = "physical-press",
@@ -727,7 +735,7 @@ private fun Modifier.animatedCombinedClick(
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val theme = LocalProxyVisualStyle.current.theme
-    val stableSurface = theme == AppTheme.LITE_LIFE || theme == AppTheme.LIQUID_GLASS
+    val stableSurface = theme == AppTheme.LITE_LIFE
     if (stableSurface) {
         return this.combinedClickable(
             interactionSource = interactionSource,
@@ -739,11 +747,11 @@ private fun Modifier.animatedCombinedClick(
     }
     val pressed by interactionSource.collectIsPressedAsState()
     val motionProfile = LocalMaterialMotionProfile.current
-    val effectivePressedScale = 1f - (1f - pressedScale) * motionProfile.deformation
+    val effectivePressedScale = 1f - (1f - pressedScale.coerceAtLeast(0.96f)) * motionProfile.deformation
     val scale by animateFloatAsState(
         targetValue = if (pressed) effectivePressedScale else 1f,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
+            dampingRatio = 0.88f,
             stiffness = Spring.StiffnessMedium,
         ),
         label = "physical-combined-press",
@@ -783,6 +791,7 @@ private fun NotesScreen(
     activeGroupFilter: String?,
     onActiveGroupFilterChanged: (String?) -> Unit,
 ) {
+    val glassBackdrop = rememberGlassBackdrop()
     val searchInteractionSource = remember { MutableInteractionSource() }
     val searchFocusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
@@ -923,6 +932,7 @@ private fun NotesScreen(
         bottomBar = {
             if (!selectionMode) {
                 MainSectionBar(
+                    backdrop = glassBackdrop,
                     notesSelected = true,
                     onOpenNotes = {},
                     onOpenLibrary = onOpenLibrary,
@@ -999,7 +1009,7 @@ private fun NotesScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(contentPadding)
+                .padding(top = contentPadding.calculateTopPadding())
                 .then(if (selectionMode) Modifier else Modifier.statusBarsPadding())
                 .padding(horizontal = 12.dp)
                 .pointerInput(selectionMode, showGroupPicker, searchExpanded) {
@@ -1085,6 +1095,7 @@ private fun NotesScreen(
                         Text(
                             text = "Заметки",
                             style = MaterialTheme.typography.displaySmall,
+                            modifier = Modifier.semantics { heading() },
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onBackground,
                         )
@@ -1258,8 +1269,9 @@ private fun NotesScreen(
             } else {
                 LazyColumn(
                     state = listState,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + 12.dp),
+                    modifier = Modifier.fillMaxSize().glassBackdropSource(glassBackdrop),
                 ) {
                     noteGroups.forEach { group ->
                         item(key = "note-group-${group.group?.id ?: "ungrouped"}") {
@@ -2152,7 +2164,7 @@ private fun NoteCard(
             strong = note.isPinned || selected,
             active = selected,
             role = ProxySurfaceRole.CARD,
-            interactive = false,
+            interactive = true,
         ) {
             Box {
                 if (accentColor != null) {
@@ -2181,7 +2193,7 @@ private fun NoteCard(
                             ),
                     )
                 }
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2226,7 +2238,7 @@ private fun NoteCard(
                             modifier = Modifier.weight(1f),
                         )
                         if (!selectionMode) {
-                            IconButton(onClick = onTogglePinned, modifier = Modifier.size(32.dp)) {
+                            IconButton(onClick = onTogglePinned, modifier = Modifier.size(48.dp)) {
                                 Icon(
                                     imageVector = Icons.Default.PushPin,
                                     contentDescription = if (note.isPinned) {
@@ -2246,7 +2258,7 @@ private fun NoteCard(
                     if (note.body.isNotBlank()) {
                         Spacer(Modifier.height(5.dp))
                         Text(
-                            text = annotatedText(note.body, note.spans),
+                            text = note.body,
                             modifier = Modifier.fillMaxWidth(),
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 textAlign = note.textAlignment.toComposeTextAlign(),
@@ -2561,103 +2573,59 @@ internal fun MainSectionBar(
     onOpenSettings: () -> Unit,
     searchSelected: Boolean = false,
     onOpenSearch: () -> Unit = {},
+    backdrop: GlassBackdrop? = null,
 ) {
-    val navigationInset = WindowInsets.navigationBars
-        .asPaddingValues()
-        .calculateBottomPadding()
-    val contentHeight = 66.dp
-    val lensOverlap = 11.dp
-
-    // The central lens is a sibling of the clipped slab. Keeping it outside the
-    // slab's shape prevents its lower optical rim from being cut on 3-button nav.
+    val navigationInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val fontScale = LocalDensity.current.fontScale.coerceIn(1f, 1.8f)
+    val contentHeight = 70.dp + (14f * (fontScale - 1f)).dp
+    val theme = LocalProxyVisualStyle.current.theme
+    val view = androidx.compose.ui.platform.LocalView.current
+    fun respond(action: () -> Unit) {
+        view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        action()
+    }
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(contentHeight + navigationInset + lensOverlap),
+        modifier = Modifier.fillMaxWidth()
+            .padding(start = 10.dp, end = 10.dp, bottom = navigationInset + 8.dp)
+            .height(contentHeight + 10.dp),
     ) {
         ProxySurface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(contentHeight + navigationInset),
-            shape = RectangleShape,
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(contentHeight),
+            shape = if (theme == AppTheme.LIQUID_GLASS) RoundedCornerShape(28.dp) else null,
             role = ProxySurfaceRole.OVERLAY,
             strong = true,
             interactive = false,
             deformContent = false,
+            backdrop = backdrop,
         ) {
             Row(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .height(contentHeight)
-                    .padding(horizontal = 2.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                MainNavigationItem(
-                    label = "Заметки",
-                    selected = notesSelected && !searchSelected,
-                    onClick = onOpenNotes,
-                    icon = {
-                        Icon(Icons.Default.Description, contentDescription = null)
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                MainNavigationItem(
-                    label = "Библиотека",
-                    selected = !notesSelected && !searchSelected,
-                    onClick = onOpenLibrary,
-                    icon = {
-                        Icon(Icons.Default.MenuBook, contentDescription = null)
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(contentHeight),
-                )
-                MainNavigationItem(
-                    label = "Поиск",
-                    selected = searchSelected,
-                    onClick = onOpenSearch,
-                    icon = {
-                        Icon(Icons.Default.Search, contentDescription = null)
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                MainNavigationItem(
-                    label = "Настройки",
-                    selected = false,
-                    onClick = onOpenSettings,
-                    icon = {
-                        Icon(Icons.Default.Settings, contentDescription = null)
-                    },
-                    modifier = Modifier.weight(1f),
-                )
+                MainNavigationItem("Заметки", notesSelected && !searchSelected,
+                    { respond(onOpenNotes) }, { Icon(Icons.Default.Description, null) }, Modifier.weight(1f))
+                MainNavigationItem("Библиотека", !notesSelected && !searchSelected,
+                    { respond(onOpenLibrary) }, { Icon(Icons.Default.MenuBook, null) }, Modifier.weight(1f))
+                Spacer(Modifier.weight(1f))
+                MainNavigationItem("Поиск", searchSelected,
+                    { respond(onOpenSearch) }, { Icon(Icons.Default.Search, null) }, Modifier.weight(1f))
+                MainNavigationItem("Настройки", false,
+                    { respond(onOpenSettings) }, { Icon(Icons.Default.Settings, null) }, Modifier.weight(1f))
             }
         }
-
         ProxySurface(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .zIndex(2f)
-                .size(60.dp)
-                .animatedClick(onClick = onPrimaryAction, pressedScale = 0.94f),
+            modifier = Modifier.align(Alignment.TopCenter).zIndex(2f).size(58.dp)
+                .animatedClick(onClick = { respond(onPrimaryAction) }, pressedScale = 0.96f),
             shape = CircleShape,
             role = ProxySurfaceRole.BUTTON,
             strong = true,
-            interactive = false,
+            interactive = true,
             deformContent = false,
+            backdrop = backdrop,
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = primaryActionDescription,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(31.dp),
-                )
+                Icon(Icons.Default.Add, primaryActionDescription,
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
             }
         }
     }
@@ -2671,35 +2639,37 @@ private fun MainNavigationItem(
     icon: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val contentColor = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val interactions = remember { MutableInteractionSource() }
+    val pressed by interactions.collectIsPressedAsState()
+    val motion = LocalMaterialMotionProfile.current
+    val scale = animateFloatAsState(if (pressed) 1f - 0.035f * motion.deformation else 1f,
+        spring(dampingRatio = 0.88f, stiffness = 620f), label = "dock-press")
+    val contentColor by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        tween(180), label = "dock-tint",
+    )
+    val selectedFill by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent,
+        tween(180), label = "dock-selection",
+    )
     Column(
-        modifier = modifier
-            .height(66.dp)
-            .animatedClick(onClick = onClick, pressedScale = 0.96f)
-            .padding(horizontal = 2.dp, vertical = 6.dp),
+        modifier = modifier.heightIn(min = 64.dp)
+            .graphicsLayer { scaleX = scale.value; scaleY = scale.value }
+            .selectable(selected = selected, interactionSource = interactions, indication = null,
+                role = Role.Tab, onClick = onClick)
+            .padding(horizontal = 1.dp, vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
     ) {
-        Box(
-            Modifier
-                .width(22.dp)
-                .height(2.dp)
-                .background(if (selected) contentColor else Color.Transparent),
-        )
         CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides contentColor) {
-            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { icon() }
+            Box(Modifier.width(48.dp).height(30.dp)
+                .background(selectedFill, RoundedCornerShape(15.dp)), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(23.dp), contentAlignment = Alignment.Center) { icon() }
+            }
         }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = contentColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Text(label, style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = contentColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -4261,7 +4231,7 @@ private fun NoteReaderScreen(
                     ProxySurface(
                         modifier = Modifier
                             .padding(end = 8.dp)
-                            .size(44.dp)
+                            .size(48.dp)
                             .animatedClick(
                                 onClick = { onEdit(note.body.length) },
                                 pressedScale = 0.96f,
@@ -4610,12 +4580,12 @@ private fun NoteEditorScreen(
         label = "editor-title-space",
     )
     val editorPagePadding by animateDpAsState(
-        targetValue = if (bodyFocused) 8.dp else 16.dp,
+        targetValue = 12.dp,
         animationSpec = tween(240, easing = FastOutSlowInEasing),
         label = "editor-page-width",
     )
     val editorTextPadding by animateDpAsState(
-        targetValue = if (bodyFocused) 12.dp else 18.dp,
+        targetValue = 16.dp,
         animationSpec = tween(240, easing = FastOutSlowInEasing),
         label = "editor-text-padding",
     )
@@ -4787,7 +4757,7 @@ private fun NoteEditorScreen(
                     ProxySurface(
                         modifier = Modifier
                             .padding(end = 8.dp)
-                            .size(44.dp)
+                            .size(48.dp)
                             .animatedClick(onClick = ::finishEditing, pressedScale = 0.96f),
                         role = ProxySurfaceRole.BUTTON,
                         strong = true,
@@ -5374,7 +5344,7 @@ private fun FormatButton(
     val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(48.dp)
             .graphicsLayer { alpha = if (enabled) 1f else 0.34f }
             .clip(if (liteLife) RoundedCornerShape(0.dp) else CircleShape)
             .background(
@@ -5406,14 +5376,14 @@ private fun FontSizeControl(
     val liteLife = LocalProxyVisualStyle.current.theme == AppTheme.LITE_LIFE
     Row(
         modifier = Modifier
-            .height(40.dp)
+            .height(48.dp)
             .clip(RoundedCornerShape(if (liteLife) 0.dp else 18.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(48.dp)
                 .animatedClick(onClick = onDecrease, pressedScale = 0.86f),
             contentAlignment = Alignment.Center,
         ) {
@@ -5438,7 +5408,7 @@ private fun FontSizeControl(
         }
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(48.dp)
                 .animatedClick(onClick = onIncrease, pressedScale = 0.86f),
             contentAlignment = Alignment.Center,
         ) {
@@ -5566,7 +5536,7 @@ private fun SettingsSheet(
                     .background(
                         MaterialTheme.colorScheme.surface.copy(
                             alpha = when (selectedTheme) {
-                                AppTheme.LIQUID_GLASS -> 0.70f
+                                AppTheme.LIQUID_GLASS -> 0.06f
                                 AppTheme.ROYAL_GRAPHITE -> 0.86f
                                 AppTheme.OLD_SCROLL -> 0.88f
                                 AppTheme.LITE_LIFE -> 0.98f
@@ -5575,7 +5545,6 @@ private fun SettingsSheet(
                         ),
                     )
                     .navigationBarsPadding()
-                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 12.dp)
                     .padding(top = 8.dp, bottom = 16.dp),
             ) {
@@ -5602,7 +5571,7 @@ private fun SettingsSheet(
                         Text("Настройки", style = MaterialTheme.typography.headlineMedium)
                         Text(
                             text = if (settingsTab == SettingsTab.APPEARANCE) {
-                                "Материал и пластика интерфейса"
+                                "Свет, тактильность и комфорт"
                             } else {
                                 "Экспериментальные режимы движения"
                             },
@@ -5640,6 +5609,7 @@ private fun SettingsSheet(
                     )
                 }
                 Spacer(Modifier.height(12.dp))
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
                 if (settingsTab == SettingsTab.LABS) {
                     LabsSettingsPanel(
                         settings = labsSettings,
@@ -5659,7 +5629,7 @@ private fun SettingsSheet(
                         CompactThemeOption(
                             theme = theme,
                             title = when (theme) {
-                                AppTheme.LIQUID_GLASS -> "Optical Glass"
+                                AppTheme.LIQUID_GLASS -> "Living Glass"
                                 AppTheme.ROYAL_GRAPHITE -> "Royal Graphite"
                                 AppTheme.OLD_SCROLL -> "OldScroll"
                                 AppTheme.LITE_LIFE -> "LiteLife"
@@ -5686,7 +5656,7 @@ private fun SettingsSheet(
                 Text(
                     text = when (selectedTheme) {
                         AppTheme.LIQUID_GLASS ->
-                            "Фон преломляется, увеличивается и смягчается внутри стекла"
+                            "Мягкий свет, прозрачная кромка и отклик на каждое касание"
                         AppTheme.ROYAL_GRAPHITE ->
                             "Graphite Oil — холодные цветные включения под мокрым камнем"
                         AppTheme.OLD_SCROLL ->
@@ -6104,6 +6074,7 @@ private fun SettingsSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+                }
         }
     }
 }

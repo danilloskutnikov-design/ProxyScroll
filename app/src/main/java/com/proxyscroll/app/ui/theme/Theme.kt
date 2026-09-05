@@ -536,12 +536,12 @@ val LocalMaterialMotionProfile = staticCompositionLocalOf {
     )
 }
 
-private data class OpticalViewport(
+internal data class OpticalViewport(
     val size: IntSize = IntSize.Zero,
     val originInWindow: Offset = Offset.Zero,
 )
 
-private val LocalOpticalViewport = staticCompositionLocalOf { OpticalViewport() }
+internal val LocalOpticalViewport = staticCompositionLocalOf { OpticalViewport() }
 
 enum class ProxySurfaceRole {
     CARD,
@@ -601,7 +601,10 @@ fun ProxyScrollTheme(
             }
         }
     }
-    val effectiveMotionProfile = if (selectedTheme == AppTheme.LITE_LIFE) {
+    val systemMotionEnabled = android.provider.Settings.Global.getFloat(
+        context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
+    ) > 0f
+    val effectiveMotionProfile = if (selectedTheme == AppTheme.LITE_LIFE || !systemMotionEnabled) {
         MaterialMotionProfile(
             deformation = 0f,
             opticalDrift = 0f,
@@ -683,8 +686,8 @@ fun ProxyScrollTheme(
         label = "shared-optical-phase",
     )
     val materialMotionScale = animateFloatAsState(
-        targetValue = if (motionQuiet) {
-            0.04f
+        targetValue = if (motionQuiet || !systemMotionEnabled) {
+            0f
         } else {
             normalizedStainSettings.motion.amplitudeFactor * motionProfile.opticalDrift
         },
@@ -695,7 +698,10 @@ fun ProxyScrollTheme(
         if (selectedTheme == AppTheme.LITE_LIFE) {
             { 0f }
         } else {
-            { materialPhase.value * materialMotionScale.value }
+            {
+                val scale = materialMotionScale.value
+                if (scale == 0f) 0f else materialPhase.value * scale
+            }
         }
     }
     val effectiveInterfaceShape = remember(selectedTheme, interfaceShape) {
@@ -787,6 +793,10 @@ private fun animatedTypography(progress: Float, theme: AppTheme): Typography {
     fun between(start: Float, end: Float) = start + (end - start) * progress
     val materialFont = if (theme == AppTheme.OLD_SCROLL) FontFamily.Serif else FontFamily.SansSerif
     return Typography(
+        displaySmall = TextStyle(
+            fontFamily = materialFont, fontWeight = FontWeight.SemiBold,
+            fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.8).sp,
+        ),
         headlineMedium = TextStyle(
             fontFamily = materialFont,
             fontWeight = FontWeight.SemiBold,
@@ -890,7 +900,7 @@ private fun animateVisualStyle(theme: AppTheme): ProxyVisualStyle {
  * makes the material transmit, magnify, and displace its environment instead
  * of painting an unrelated translucent gradient over it.
  */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLiquidOpticalScene(
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLiquidOpticalScene(
     viewportSize: Size,
     viewportOrigin: Offset,
     palette: StainPaletteColors,
@@ -930,7 +940,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLiquidOpticalSc
     drawCircle(
         brush = Brush.radialGradient(
             colors = listOf(
-                palette.primary.copy(alpha = 0.30f * stain),
+                palette.primary.copy(alpha = 0.56f * stain),
                 palette.primary.copy(alpha = 0.105f * stain),
                 Color.Transparent,
             ),
@@ -949,7 +959,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLiquidOpticalSc
     drawCircle(
         brush = Brush.radialGradient(
             colors = listOf(
-                palette.secondary.copy(alpha = 0.25f * stain),
+                palette.secondary.copy(alpha = 0.48f * stain),
                 palette.secondary.copy(alpha = 0.065f * stain),
                 Color.Transparent,
             ),
@@ -968,7 +978,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLiquidOpticalSc
     drawCircle(
         brush = Brush.radialGradient(
             colors = listOf(
-                palette.tertiary.copy(alpha = 0.21f * stain),
+                palette.tertiary.copy(alpha = 0.40f * stain),
                 palette.tertiary.copy(alpha = 0.052f * stain),
                 Color.Transparent,
             ),
@@ -979,6 +989,18 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLiquidOpticalSc
         radius = radius(sceneSize.width * 0.86f),
     )
 
+    drawSuspendedLight(sceneSize, ::project, activeDrift, stain)
+    // A gently curved light caustic gives refraction a continuous visual landmark.
+    val causticPath = Path().apply {
+        val start = project(Offset(-sceneSize.width * 0.3f, sceneSize.height * 0.68f))
+        moveTo(start.x, start.y)
+        val c1 = project(Offset(sceneSize.width * 0.86f, sceneSize.height * (0.20f + activeDrift * 0.012f)))
+        val c2 = project(Offset(sceneSize.width * 0.20f, sceneSize.height * 1.08f))
+        val end = project(Offset(sceneSize.width * 1.3f, sceneSize.height * 0.38f))
+        cubicTo(c1.x, c1.y, c2.x, c2.y, end.x, end.y)
+    }
+    drawPath(causticPath, Color.White.copy(alpha = 0.14f), style = Stroke(width = 22.dp.toPx()))
+    drawPath(causticPath, palette.secondary.copy(alpha = stain * 0.20f), style = Stroke(width = 1.4.dp.toPx()))
     // Broad environmental lights are deliberately recognisable. Their small
     // discontinuity at a glass edge is what makes refraction readable.
     val ribbonStart = project(
@@ -1519,9 +1541,14 @@ fun ProxySurface(
     deformContent: Boolean = true,
     interactive: Boolean = true,
     recessed: Boolean = false,
+    backdrop: GlassBackdrop? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val style = LocalProxyVisualStyle.current
+    if (style.theme == AppTheme.LIQUID_GLASS) {
+        LivingGlassSurface(modifier, shape, role, strong, active, interactive, recessed, backdrop, content)
+        return
+    }
     val shapeSettings = LocalProxyShape.current
     if (style.theme == AppTheme.LITE_LIFE) {
         val fill = when {

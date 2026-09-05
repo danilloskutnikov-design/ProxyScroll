@@ -10,10 +10,11 @@ android {
 
     defaultConfig {
         applicationId = "com.proxyscroll.app"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 41
-        versionName = "0.28.0-alpha41"
+        versionCode = 42
+        versionName = "0.29.0-alpha42"
     }
 
     val alphaKeystore = file("proxyscroll-alpha.keystore")
@@ -39,7 +40,7 @@ android {
             initWith(getByName("debug"))
             applicationIdSuffix = ".preview"
             versionNameSuffix = "-sidecar"
-            resValue("string", "app_name", "ProxyScroll 0.28")
+            resValue("string", "app_name", "ProxyScroll 0.29")
             matchingFallbacks += listOf("debug")
         }
         release {
@@ -75,6 +76,9 @@ dependencies {
 
     implementation(composeBom)
     androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
